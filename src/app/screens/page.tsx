@@ -1,0 +1,93 @@
+import Link from "next/link";
+import { AppNav } from "@/components/app-nav";
+import { formatCurrency, formatPercent } from "@/lib/format";
+import { getResearchScreens } from "@/lib/server/screens";
+import type { Direction } from "@/lib/types";
+
+const directionClass: Record<Direction, string> = {
+  positive: "border-moss bg-[#f2f6ec] text-moss",
+  negative: "border-brick bg-[#fff1ef] text-brick",
+  neutral: "border-line bg-white text-muted",
+  mixed: "border-amber bg-[#fff7e8] text-amber"
+};
+
+export default async function ScreensPage() {
+  const screens = await getResearchScreens();
+
+  return (
+    <main className="min-h-screen bg-canvas">
+      <AppNav showSearch />
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+        <section>
+          <p className="text-sm font-semibold text-steel">Research Screens</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-normal text-ink">
+            Screen for explanations, not just factors.
+          </h1>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-muted">
+            Each screen is generated from ThesisLens scores and signal evidence. The goal is
+            to surface companies worth researching, then explain the question to answer.
+          </p>
+        </section>
+
+        <div className="grid gap-6">
+          {screens.map((screen) => (
+            <section key={screen.id} className="rounded-md border border-line bg-white p-5 shadow-sm">
+              <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+                <div>
+                  <h2 className="text-lg font-semibold text-ink">{screen.title}</h2>
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">{screen.description}</p>
+                </div>
+                <span className="rounded bg-canvas px-2 py-1 text-xs font-semibold text-muted">
+                  {screen.results.length} names
+                </span>
+              </div>
+
+              <div className="mt-4 overflow-hidden rounded-md border border-line">
+                <table className="w-full border-collapse text-left text-sm">
+                  <thead className="bg-canvas text-xs uppercase tracking-wide text-muted">
+                    <tr>
+                      <th className="px-4 py-3">Symbol</th>
+                      <th className="hidden px-4 py-3 md:table-cell">Thesis Question</th>
+                      <th className="px-4 py-3">Price</th>
+                      <th className="px-4 py-3">Quality</th>
+                      <th className="px-4 py-3">Valuation</th>
+                      <th className="px-4 py-3">Expect.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {screen.results.map((result) => (
+                      <tr key={`${screen.id}-${result.symbol}`} className="border-t border-line">
+                        <td className="px-4 py-4">
+                          <Link href={`/stocks/${result.symbol}`} className="font-semibold text-steel hover:text-ink">
+                            {result.symbol}
+                          </Link>
+                          <p className="max-w-44 truncate text-xs text-muted">{result.name}</p>
+                          <span className={`mt-2 inline-block rounded border px-2 py-1 text-xs ${directionClass[result.direction]}`}>
+                            {result.direction}
+                          </span>
+                        </td>
+                        <td className="hidden max-w-xl px-4 py-4 leading-6 text-muted md:table-cell">
+                          {result.thesis}
+                        </td>
+                        <td className="px-4 py-4">
+                          <p className="font-medium">{formatCurrency(result.price, false)}</p>
+                          <p className={(result.changePercent ?? 0) >= 0 ? "text-xs text-moss" : "text-xs text-brick"}>
+                            {formatPercent(result.changePercent)}
+                          </p>
+                        </td>
+                        <td className="px-4 py-4 font-semibold">{result.quality}</td>
+                        <td className="px-4 py-4 font-semibold">{result.valuation}</td>
+                        <td className="px-4 py-4 font-semibold">{result.expectations}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ))}
+        </div>
+      </div>
+    </main>
+  );
+}
+

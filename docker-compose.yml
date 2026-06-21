@@ -1,0 +1,60 @@
+services:
+  app:
+    build:
+      context: .
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      FMP_API_KEY: ${FMP_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AI_USE_OPENAI: ${AI_USE_OPENAI:-false}
+      FMP_USE_MOCKS: ${FMP_USE_MOCKS:-true}
+      DATABASE_URL: postgresql://thesislens:thesislens@postgres:5432/thesislens
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      - postgres
+      - redis
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  worker:
+    build:
+      context: .
+    command: ["node", "scripts/worker.mjs"]
+    environment:
+      APP_BASE_URL: http://app:3000
+      WORKER_REFRESH_INTERVAL_MS: ${WORKER_REFRESH_INTERVAL_MS:-300000}
+      FMP_API_KEY: ${FMP_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AI_USE_OPENAI: ${AI_USE_OPENAI:-false}
+      FMP_USE_MOCKS: ${FMP_USE_MOCKS:-true}
+      DATABASE_URL: postgresql://thesislens:thesislens@postgres:5432/thesislens
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      app:
+        condition: service_healthy
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_started
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: thesislens
+      POSTGRES_USER: thesislens
+      POSTGRES_PASSWORD: thesislens
+    volumes:
+      - thesislens-postgres:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+  redis:
+    image: redis:7-alpine
+
+volumes:
+  thesislens-postgres:
