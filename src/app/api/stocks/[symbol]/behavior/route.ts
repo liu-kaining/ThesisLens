@@ -18,7 +18,7 @@ export async function GET(
       ["fmp_insider", "fmp_congress"].includes(item.source)
     ),
     disclaimer:
-      "Insider and congressional disclosures are delayed context signals, not real-time trading intent or standalone investment advice.",
+      "内幕交易和国会交易披露存在延迟，只能作为背景信号，不代表实时交易意图，也不能单独构成投资建议。",
     refreshedAt: research.snapshot.dataStatus.refreshedAt
   });
 }

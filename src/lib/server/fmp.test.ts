@@ -141,7 +141,8 @@ describe("FMP adapter", () => {
     expect(snapshot.profile.name).toBe("Apple Inc.");
     expect(snapshot.quote.price).toBe(201.5);
     expect(snapshot.dataStatus.mode).toBe("mixed");
-    expect(snapshot.dataStatus.warnings.join(" ")).toContain("profile endpoint unavailable");
+    expect(snapshot.dataStatus.warnings.join(" ")).toContain("公司资料暂不可用");
+    expect(snapshot.dataStatus.modules?.some((module) => module.status === "unavailable")).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(22);
     expect(profileStatus).toMatchObject({
       path: "profile",

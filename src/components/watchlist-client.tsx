@@ -69,25 +69,25 @@ export function WatchlistClient({ initialItems }: WatchlistClientProps) {
   return (
     <div className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
       <form onSubmit={addItem} className="rounded-md border border-line bg-white p-5 shadow-sm">
-        <h2 className="text-sm font-semibold text-ink">Add Research Target</h2>
+        <h2 className="text-sm font-semibold text-ink">添加研究标的</h2>
         <p className="mt-2 text-sm leading-6 text-muted">
-          Add a ticker to monitor quality, valuation, expectations, events, and behavior signals.
+          添加股票代码，用来跟踪质量、估值、预期、事件和行为信号。
         </p>
         <label className="mt-5 block text-xs font-semibold uppercase tracking-wide text-muted">
-          Symbol
+          股票代码
           <input
             value={symbol}
             onChange={(event) => setSymbol(event.target.value)}
-            placeholder="e.g. AMZN"
+            placeholder="例如 AMZN"
             className="mt-2 h-11 w-full rounded-md border border-line px-3 text-sm text-ink outline-none focus:border-steel"
           />
         </label>
         <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-muted">
-          Notes
+          备注
           <textarea
             value={notes}
             onChange={(event) => setNotes(event.target.value)}
-            placeholder="What thesis are you monitoring?"
+            placeholder="你想跟踪什么 thesis？"
             rows={4}
             className="mt-2 w-full resize-none rounded-md border border-line px-3 py-3 text-sm text-ink outline-none focus:border-steel"
           />
@@ -97,27 +97,27 @@ export function WatchlistClient({ initialItems }: WatchlistClientProps) {
           disabled={isPending}
           className="mt-4 rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-steel disabled:opacity-60"
         >
-          {isPending ? "Updating..." : "Add to watchlist"}
+          {isPending ? "更新中..." : "加入观察列表"}
         </button>
       </form>
 
       <div className="rounded-md border border-line bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <h2 className="text-sm font-semibold text-ink">Core Research Watchlist</h2>
-            <p className="mt-1 text-sm text-muted">{items.length} companies monitored</p>
+            <h2 className="text-sm font-semibold text-ink">核心研究观察列表</h2>
+            <p className="mt-1 text-sm text-muted">正在跟踪 {items.length} 家公司</p>
           </div>
         </div>
         <div className="mt-4 overflow-hidden rounded-md border border-line">
           <table className="w-full border-collapse text-left text-sm">
             <thead className="bg-canvas text-xs uppercase tracking-wide text-muted">
               <tr>
-                <th className="px-4 py-3">Symbol</th>
-                <th className="hidden px-4 py-3 sm:table-cell">Signal & changes</th>
-                <th className="px-4 py-3">Price</th>
-                <th className="px-4 py-3">Move</th>
-                <th className="px-4 py-3">Score</th>
-                <th className="px-4 py-3" aria-label="Actions" />
+                <th className="px-4 py-3">代码</th>
+                <th className="hidden px-4 py-3 sm:table-cell">信号与变化</th>
+                <th className="px-4 py-3">价格</th>
+                <th className="px-4 py-3">涨跌</th>
+                <th className="px-4 py-3">分数</th>
+                <th className="px-4 py-3" aria-label="操作" />
               </tr>
             </thead>
             <tbody>
@@ -130,7 +130,7 @@ export function WatchlistClient({ initialItems }: WatchlistClientProps) {
                     <p className="max-w-48 truncate text-xs text-muted">{item.name ?? item.notes}</p>
                   </td>
                   <td className="hidden max-w-xl px-4 py-4 text-muted sm:table-cell">
-                    <p>{item.topSignal ?? item.notes ?? "No signal loaded"}</p>
+                    <p>{item.topSignal ?? item.notes ?? "暂无信号"}</p>
                     {item.changeBadges?.length ? (
                       <div className="mt-3 flex flex-wrap gap-2">
                         {item.changeBadges.map((badge) => (
@@ -167,7 +167,7 @@ export function WatchlistClient({ initialItems }: WatchlistClientProps) {
                       type="button"
                       onClick={() => removeItem(item.symbol)}
                       className="rounded p-2 text-muted transition hover:bg-canvas hover:text-brick"
-                      aria-label={`Remove ${item.symbol}`}
+                      aria-label={`移除 ${item.symbol}`}
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>

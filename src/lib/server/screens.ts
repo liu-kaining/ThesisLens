@@ -59,7 +59,7 @@ export async function getResearchScreens(): Promise<ResearchScreen[]> {
     .map((model) =>
       resultFromResearch(
         model,
-        "Business quality is strong; research whether the valuation premium is justified.",
+        "基本面质量较强；下一步研究估值溢价是否合理。",
         "positive"
       )
     )
@@ -70,7 +70,7 @@ export async function getResearchScreens(): Promise<ResearchScreen[]> {
     .map((model) =>
       resultFromResearch(
         model,
-        "Analyst expectations are improving; compare revision strength with recent price action.",
+        "分析师预期正在改善；需要比较预期修正强度和近期股价反应。",
         "positive"
       )
     )
@@ -81,8 +81,8 @@ export async function getResearchScreens(): Promise<ResearchScreen[]> {
       resultFromResearch(
         model,
         scoreValue(model.scores, "valuation") >= 60
-          ? "Valuation is not hostile relative to the loaded evidence; inspect why."
-          : "Valuation appears demanding; identify the growth proof needed to defend it.",
+          ? "相对已载入证据，估值不算敌意；需要拆解原因。"
+          : "估值看起来偏贵；需要找到足够支撑估值的增长证据。",
         scoreValue(model.scores, "valuation") >= 60 ? "positive" : "mixed"
       )
     )
@@ -92,7 +92,7 @@ export async function getResearchScreens(): Promise<ResearchScreen[]> {
     .map((model) =>
       resultFromResearch(
         model,
-        "Upcoming events or filings could change the near-term thesis; review catalysts.",
+        "近期事件或 SEC 文件可能改变短期 thesis；需要复核催化剂。",
         scoreValue(model.scores, "events") < 58 ? "mixed" : "neutral"
       )
     )
@@ -101,32 +101,31 @@ export async function getResearchScreens(): Promise<ResearchScreen[]> {
   return [
     {
       id: "high-quality-pullbacks",
-      title: "High Quality Companies",
+      title: "高质量公司",
       description:
-        "Companies where quality, profitability, and cash-flow evidence are strong enough to deserve deeper valuation work.",
+        "质量、盈利能力和现金流证据较强，值得进一步做估值研究的公司。",
       results: highQuality
     },
     {
       id: "revision-momentum",
-      title: "Positive Expectation Momentum",
+      title: "预期动量转强",
       description:
-        "Stocks where analyst estimate revisions and price target evidence are improving.",
+        "分析师预期修正和目标价证据正在改善的股票。",
       results: revisionMomentum
     },
     {
       id: "valuation-questions",
-      title: "Valuation Questions",
+      title: "估值问题",
       description:
-        "Names where the core question is whether price, DCF, multiples, and peer context agree.",
+        "核心问题是价格、DCF、倍数和同行相对位置是否一致的标的。",
       results: valuationQuestions
     },
     {
       id: "event-risk",
-      title: "Event Risk Watch",
+      title: "事件风险观察",
       description:
-        "Companies where upcoming earnings, filings, disclosures, or news flow deserve attention.",
+        "近期财报、SEC 文件、披露或新闻流值得关注的公司。",
       results: eventRisk
     }
   ];
 }
-

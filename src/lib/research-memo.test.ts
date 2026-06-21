@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { buildResearchMemo } from "@/lib/research-memo";
 import { getMockSnapshot } from "@/lib/mock-data";
 import { buildEvidence, computeScores, computeSignals } from "@/lib/signals";

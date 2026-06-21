@@ -3,6 +3,7 @@
 import { Trash2 } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, useState, useTransition } from "react";
+import { thesisStatusLabel } from "@/lib/labels";
 
 type Thesis = {
   id: string;
@@ -49,13 +50,13 @@ export function ThesesClient({ initialTheses }: { initialTheses: Thesis[] }) {
   return (
     <div className="grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
       <form onSubmit={submit} className="rounded-md border border-line bg-white p-5 shadow-sm">
-        <h2 className="text-sm font-semibold text-ink">Save Thesis</h2>
+        <h2 className="text-sm font-semibold text-ink">保存 Thesis</h2>
         <p className="mt-2 text-sm leading-6 text-muted">
-          Capture the research claim you want ThesisLens to monitor over time.
+          记录你希望 ThesisLens 持续跟踪的研究判断。
         </p>
         <div className="mt-5 grid gap-4 sm:grid-cols-2">
           <label className="block text-xs font-semibold uppercase tracking-wide text-muted">
-            Symbol
+            股票代码
             <input
               value={symbol}
               onChange={(event) => setSymbol(event.target.value)}
@@ -64,33 +65,33 @@ export function ThesesClient({ initialTheses }: { initialTheses: Thesis[] }) {
             />
           </label>
           <label className="block text-xs font-semibold uppercase tracking-wide text-muted">
-            Status
+            状态
             <select
               value={status}
               onChange={(event) => setStatus(event.target.value as Thesis["status"])}
               className="mt-2 h-11 w-full rounded-md border border-line px-3 text-sm text-ink outline-none focus:border-steel"
             >
-              <option value="active">Active</option>
-              <option value="watching">Watching</option>
-              <option value="closed">Closed</option>
+              <option value="active">进行中</option>
+              <option value="watching">观察中</option>
+              <option value="closed">已关闭</option>
             </select>
           </label>
         </div>
         <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-muted">
-          Title
+          标题
           <input
             value={title}
             onChange={(event) => setTitle(event.target.value)}
-            placeholder="AI cloud operating leverage"
+            placeholder="云业务经营杠杆"
             className="mt-2 h-11 w-full rounded-md border border-line px-3 text-sm text-ink outline-none focus:border-steel"
           />
         </label>
         <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-muted">
-          Thesis Text
+          Thesis 内容
           <textarea
             value={thesisText}
             onChange={(event) => setThesisText(event.target.value)}
-            placeholder="What would need to remain true for this investment thesis to work?"
+            placeholder="这个投资 thesis 要成立，哪些条件必须继续为真？"
             rows={6}
             className="mt-2 w-full resize-none rounded-md border border-line px-3 py-3 text-sm text-ink outline-none focus:border-steel"
           />
@@ -100,12 +101,12 @@ export function ThesesClient({ initialTheses }: { initialTheses: Thesis[] }) {
           disabled={isPending}
           className="mt-4 rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-steel disabled:opacity-60"
         >
-          {isPending ? "Saving..." : "Save thesis"}
+          {isPending ? "保存中..." : "保存 Thesis"}
         </button>
       </form>
 
       <div className="rounded-md border border-line bg-white p-5 shadow-sm">
-        <h2 className="text-sm font-semibold text-ink">Thesis Tracker</h2>
+        <h2 className="text-sm font-semibold text-ink">Thesis 跟踪</h2>
         <div className="mt-4 grid gap-3">
           {theses.map((thesis) => (
             <article key={thesis.id} className="rounded-md border border-line p-4">
@@ -117,12 +118,14 @@ export function ThesesClient({ initialTheses }: { initialTheses: Thesis[] }) {
                   <h3 className="mt-1 text-base font-semibold text-ink">{thesis.title}</h3>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="rounded border border-line px-2 py-1 text-xs text-muted">{thesis.status}</span>
+                  <span className="rounded border border-line px-2 py-1 text-xs text-muted">
+                    {thesisStatusLabel(thesis.status)}
+                  </span>
                   <button
                     type="button"
                     onClick={() => remove(thesis.id)}
                     className="rounded p-2 text-muted transition hover:bg-canvas hover:text-brick"
-                    aria-label={`Delete thesis ${thesis.title}`}
+                    aria-label={`删除 thesis ${thesis.title}`}
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
@@ -136,4 +139,3 @@ export function ThesesClient({ initialTheses }: { initialTheses: Thesis[] }) {
     </div>
   );
 }
-

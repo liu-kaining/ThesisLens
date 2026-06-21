@@ -12,7 +12,7 @@ export default async function SettingsPage() {
       <AppNav showSearch />
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
         <section>
-          <p className="text-sm font-semibold text-steel">Settings</p>
+          <p className="text-sm font-semibold text-steel">设置</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-normal text-ink">
             数据模式、存储状态和上线准备度。
           </h1>
@@ -23,30 +23,30 @@ export default async function SettingsPage() {
         </section>
 
         <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <StatusCard label="FMP mode" value={fmpMode} detail={hasFmpKey ? "API key present" : "No API key configured"} />
+          <StatusCard label="FMP 模式" value={fmpMode} detail={hasFmpKey ? "已配置 API key" : "未配置 API key"} />
           <StatusCard
-            label="Database"
-            value={database.connected ? "Postgres" : "memory fallback"}
-            detail={database.enabled ? "DATABASE_URL configured" : "DATABASE_URL not configured"}
+            label="数据库"
+            value={database.connected ? "Postgres" : "内存兜底"}
+            detail={database.enabled ? "已配置 DATABASE_URL" : "未配置 DATABASE_URL"}
           />
           <StatusCard
-            label="Cache"
-            value={cache.connected ? "Redis" : "memory fallback"}
-            detail={cache.enabled ? "REDIS_URL configured" : "REDIS_URL not configured"}
+            label="缓存"
+            value={cache.connected ? "Redis" : "内存兜底"}
+            detail={cache.enabled ? "已配置 REDIS_URL" : "未配置 REDIS_URL"}
           />
-          <StatusCard label="Compliance" value="research only" detail="No buy/sell/hold advice" />
+          <StatusCard label="合规边界" value="仅研究" detail="不提供买入/卖出/持有建议" />
         </section>
 
         <section className="rounded-md border border-line bg-white p-5 shadow-sm">
-          <h2 className="text-sm font-semibold text-ink">Launch Checklist</h2>
+          <h2 className="text-sm font-semibold text-ink">上线检查清单</h2>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             {[
-              "Validate FMP Premium endpoint access with the real key.",
-              "Confirm FMP data display and redistribution rights before public launch.",
-              "Keep every AI claim tied to evidence IDs.",
-              "Use Postgres and Redis in Docker or managed production services.",
-              "Review generated memos as research summaries, not investment advice.",
-              "Add authentication before storing real user watchlists."
+              "用真实 key 验证 FMP Premium 各端点的可访问性。",
+              "公开上线前确认 FMP 数据展示和再分发权限。",
+              "每个研究结论都必须能回到证据 ID。",
+              "生产环境使用 Docker 或托管服务里的 Postgres 和 Redis。",
+              "规则研究备忘录只能作为研究摘要，不作为投资建议。",
+              "存储真实用户观察列表前，需要加入登录和权限控制。"
             ].map((item) => (
               <div key={item} className="rounded-md border border-line bg-canvas p-3 text-sm leading-6 text-muted">
                 {item}

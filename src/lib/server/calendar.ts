@@ -14,7 +14,7 @@ export async function getCalendarEvents(symbols = DEFAULT_SYMBOLS) {
         date: event.date,
         type: event.type,
         title: event.title,
-        detail: event.description ?? "Review event details.",
+        detail: event.description ?? "需要复核事件细节。",
         severity: event.severity
       })),
       ...model.snapshot.filings.slice(0, 3).map((filing) => ({
@@ -23,11 +23,10 @@ export async function getCalendarEvents(symbols = DEFAULT_SYMBOLS) {
         company: model.snapshot.profile.name,
         date: filing.filingDate,
         type: "filing",
-        title: `${filing.formType} filed`,
+        title: `${filing.formType} 文件`,
         detail: filing.title,
         severity: filing.formType === "8-K" ? "medium" : "low"
       }))
     ])
     .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 }
-

@@ -12,6 +12,7 @@ import Link from "next/link";
 import { AppNav } from "@/components/app-nav";
 import { SearchBox } from "@/components/search-box";
 import { formatCurrency, formatPercent } from "@/lib/format";
+import { directionLabel } from "@/lib/labels";
 import type { DashboardModel, Direction } from "@/lib/types";
 
 type DashboardProps = {
@@ -35,15 +36,14 @@ export function Dashboard({ model }: DashboardProps) {
             <div>
               <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-steel">
                 <Radar className="h-4 w-4" />
-                U.S. equity research workspace
+                美股研究工作台
               </div>
               <h1 className="max-w-3xl text-3xl font-semibold tracking-normal text-ink sm:text-4xl">
-                Build an evidence-backed thesis before the market gives you an opinion.
+                在市场替你下结论之前，先建立有证据支撑的 thesis。
               </h1>
               <p className="mt-4 max-w-2xl text-sm leading-6 text-muted">
-                ThesisLens turns FMP fundamentals, valuation, estimates, filings, news,
-                insider activity, congressional disclosures, and technical context into a
-                research workflow you can inspect.
+                ThesisLens 把 FMP 的基本面、估值、分析师预期、SEC 文件、新闻公告、
+                内幕/国会交易披露和技术面背景，整理成可追溯的研究流程。
               </p>
             </div>
             <SearchBox />
@@ -55,7 +55,7 @@ export function Dashboard({ model }: DashboardProps) {
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted">{item.label}</p>
                   <span className={`rounded border px-2 py-1 text-xs ${directionStyles[item.direction]}`}>
-                    {item.direction}
+                    {directionLabel(item.direction)}
                   </span>
                 </div>
                 <p className="text-lg font-semibold text-ink">{item.value}</p>
@@ -67,17 +67,17 @@ export function Dashboard({ model }: DashboardProps) {
 
         <section className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
           <div className="rounded-md border border-line bg-white p-5 shadow-sm">
-            <SectionTitle icon={<Activity className="h-4 w-4" />} title="Watchlist Changes" />
+            <SectionTitle icon={<Activity className="h-4 w-4" />} title="观察列表变化" />
             <div className="mt-4 overflow-hidden rounded-md border border-line">
               <table className="w-full border-collapse text-left text-sm">
                 <thead className="bg-canvas text-xs uppercase tracking-wide text-muted">
                   <tr>
-                    <th className="px-4 py-3">Ticker</th>
-                    <th className="hidden px-4 py-3 sm:table-cell">Company</th>
-                    <th className="px-4 py-3">Price</th>
-                    <th className="px-4 py-3">Move</th>
-                    <th className="hidden px-4 py-3 lg:table-cell">Top Signal</th>
-                    <th className="px-4 py-3">Score</th>
+                    <th className="px-4 py-3">代码</th>
+                    <th className="hidden px-4 py-3 sm:table-cell">公司</th>
+                    <th className="px-4 py-3">价格</th>
+                    <th className="px-4 py-3">涨跌</th>
+                    <th className="hidden px-4 py-3 lg:table-cell">核心信号</th>
+                    <th className="px-4 py-3">分数</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -119,7 +119,7 @@ export function Dashboard({ model }: DashboardProps) {
           </div>
 
           <div className="rounded-md border border-line bg-white p-5 shadow-sm">
-            <SectionTitle icon={<LineChart className="h-4 w-4" />} title="Research Candidates" />
+            <SectionTitle icon={<LineChart className="h-4 w-4" />} title="研究候选" />
             <div className="mt-4 flex flex-col gap-3">
               {model.researchIdeas.map((idea) => (
                 <Link
@@ -133,7 +133,7 @@ export function Dashboard({ model }: DashboardProps) {
                       <h3 className="mt-1 text-base font-semibold text-ink">{idea.title}</h3>
                     </div>
                     <span className={`rounded border px-2 py-1 text-xs ${directionStyles[idea.direction]}`}>
-                      {idea.direction}
+                      {directionLabel(idea.direction)}
                     </span>
                   </div>
                   <p className="mt-2 text-sm leading-5 text-muted">{idea.thesis}</p>
@@ -144,10 +144,10 @@ export function Dashboard({ model }: DashboardProps) {
         </section>
 
         <section className="grid gap-4 md:grid-cols-4">
-          <Capability icon={<BarChart3 className="h-5 w-5" />} title="Fundamentals" text="Statements, ratios, scores, owner-earnings style cash-flow view." />
-          <Capability icon={<CircleDollarSign className="h-5 w-5" />} title="Valuation" text="DCF, multiples, peer context, historical percentile, target gap." />
-          <Capability icon={<FileText className="h-5 w-5" />} title="Filings & Events" text="SEC filings, news, press releases, earnings calendar, catalysts." />
-          <Capability icon={<CalendarClock className="h-5 w-5" />} title="Behavior Signals" text="Insider transactions and Senate/House disclosures as context." />
+          <Capability icon={<BarChart3 className="h-5 w-5" />} title="基本面" text="报表、比率、财务健康分和现金流视角。" />
+          <Capability icon={<CircleDollarSign className="h-5 w-5" />} title="估值" text="DCF、倍数、同行、历史分位和目标价空间。" />
+          <Capability icon={<FileText className="h-5 w-5" />} title="文件与事件" text="SEC 文件、新闻、公告、财报日历和催化剂。" />
+          <Capability icon={<CalendarClock className="h-5 w-5" />} title="行为信号" text="内幕交易和参众两院披露只作为背景信号。" />
         </section>
       </div>
     </main>

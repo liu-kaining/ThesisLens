@@ -10,14 +10,13 @@ export default async function AlertsPage() {
       <AppNav showSearch />
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
         <section>
-          <p className="text-sm font-semibold text-steel">Alerts</p>
+          <p className="text-sm font-semibold text-steel">提醒</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-normal text-ink">
-            Turn signals into monitored conditions.
+            把研究信号变成可监控条件。
           </h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-muted">
-            Alerts evaluate ThesisLens scores and price context. They are designed to
-            support future background jobs and notifications while remaining useful in
-            the current web app.
+            提醒会评估 ThesisLens 分数和价格背景。当前版本可在网页中使用，
+            后续可以接入后台任务和通知。
           </p>
         </section>
         <AlertsClient initialAlerts={alerts} />
@@ -25,4 +24,3 @@ export default async function AlertsPage() {
     </main>
   );
 }
-

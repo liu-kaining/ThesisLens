@@ -65,22 +65,22 @@ export async function getDashboardModel(): Promise<DashboardModel> {
     generatedAt: new Date().toISOString(),
     marketPulse: [
       {
-        label: "Market mode",
-        value: "Selective risk-on",
+        label: "市场状态",
+        value: "结构性偏风险",
         direction: "mixed",
-        detail: "Mega-cap quality remains bid, but valuation dispersion is wide."
+        detail: "大市值高质量公司仍受资金关注，但估值分化明显。"
       },
       {
-        label: "Research focus",
-        value: "Revision quality",
+        label: "研究重点",
+        value: "预期修正质量",
         direction: "positive",
-        detail: "FMP estimates and price targets are prioritized over raw headlines."
+        detail: "优先看 FMP 分析师预期和目标价变化，而不是只看新闻标题。"
       },
       {
-        label: "Event load",
-        value: "Moderate",
+        label: "事件压力",
+        value: "中等",
         direction: "neutral",
-        detail: "Upcoming earnings windows drive the highest event-risk flags."
+        detail: "近期财报窗口和 SEC 文件是主要事件风险来源。"
       }
     ],
     watchlist: research.map(({ snapshot, scores, signals }) => ({
@@ -88,7 +88,7 @@ export async function getDashboardModel(): Promise<DashboardModel> {
       name: snapshot.profile.name,
       price: snapshot.quote.price,
       changePercent: snapshot.quote.changesPercentage,
-      topSignal: signals[0]?.title ?? "No signal computed",
+      topSignal: signals[0]?.title ?? "暂无计算信号",
       score: Math.round(
         scores
           .filter((score) => ["quality", "valuation", "expectations"].includes(score.scoreType))
@@ -98,23 +98,23 @@ export async function getDashboardModel(): Promise<DashboardModel> {
     researchIdeas: [
       {
         symbol: "MSFT",
-        title: "High quality with estimate momentum",
+        title: "高质量叠加预期动量",
         thesis:
-          "Strong margins and positive revisions make valuation discipline the core research question.",
+          "利润率强、预期修正偏正，核心问题是估值纪律是否足够。",
         direction: "positive"
       },
       {
         symbol: "NVDA",
-        title: "Exceptional growth, crowded expectations",
+        title: "高增长与高预期并存",
         thesis:
-          "The thesis depends on whether forward demand keeps outrunning already elevated expectations.",
+          "thesis 取决于未来需求能否继续跑赢已经很高的市场预期。",
         direction: "mixed"
       },
       {
         symbol: "AAPL",
-        title: "Cash-flow machine with catalyst question",
+        title: "现金流稳健，但需要催化剂",
         thesis:
-          "Quality is durable, but investors need evidence of accelerating services or hardware replacement demand.",
+          "质量仍然稳健，但需要看到服务增长或硬件换机需求加速的证据。",
         direction: "mixed"
       }
     ]

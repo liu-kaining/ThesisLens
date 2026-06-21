@@ -329,6 +329,68 @@ export async function getFmpResearchSnapshot(symbol: string): Promise<ResearchSn
     priceTarget.targetLow !== undefined ||
     priceTarget.targetMedian !== undefined;
   const hasValuation = valuation.dcf !== undefined || valuation.leveredDcf !== undefined || valuation.enterpriseValue !== undefined;
+  const moduleStatus = [
+    {
+      key: "company_quote",
+      label: "公司资料与行情",
+      status: profile && quote ? "live" : "unavailable",
+      detail: profile && quote ? "profile、quote 已接入 FMP 实时数据。" : "公司资料或行情缺失。"
+    },
+    {
+      key: "fundamentals",
+      label: "财务报表与基本面",
+      status: financials.length > 0 && metrics.length > 0 ? "live" : "unavailable",
+      detail: `财务报表 ${financials.length} 期，关键指标/比率 ${metrics.length} 期。`
+    },
+    {
+      key: "financial_scores",
+      label: "财务健康分",
+      status: hasFinancialScores ? "live" : "unavailable",
+      detail: hasFinancialScores ? "Piotroski / Altman 等财务健康指标已接入。" : "financial-scores 未返回可用值。"
+    },
+    {
+      key: "valuation",
+      label: "估值与目标价",
+      status: hasValuation || hasPriceTarget ? "live" : "unavailable",
+      detail: `DCF ${hasValuation ? "可用" : "缺失"}，一致目标价 ${hasPriceTarget ? "可用" : "缺失"}。`
+    },
+    {
+      key: "expectations",
+      label: "分析师预期",
+      status: analystEstimates.length > 0 || rating.rating ? "live" : "unavailable",
+      detail: `分析师预期 ${analystEstimates.length} 条，评级 ${rating.rating ? "可用" : "缺失"}。`
+    },
+    {
+      key: "news_filings",
+      label: "新闻、公告与 SEC",
+      status: news.length > 0 || filings.length > 0 ? "live" : "unavailable",
+      detail: `新闻/公告 ${news.length} 条，SEC 文件 ${filings.length} 条。`
+    },
+    {
+      key: "behavior",
+      label: "内幕与国会交易",
+      status: insiders.length > 0 || congress.length > 0 ? "live" : "unavailable",
+      detail: `内幕交易 ${insiders.length} 条，国会交易 ${congress.length} 条；失败端点不会使用示例数据替代。`
+    },
+    {
+      key: "technical",
+      label: "技术面",
+      status: technicals.length > 0 ? "live" : "unavailable",
+      detail: `历史价格序列生成 ${technicals.length} 个技术面观察点。`
+    },
+    {
+      key: "peers",
+      label: "同行公司",
+      status: peers.length > 0 ? "live" : "unavailable",
+      detail: `同行列表 ${peers.length} 个标的。`
+    },
+    {
+      key: "calendar",
+      label: "财报日历",
+      status: "unavailable",
+      detail: "实时财报日历尚未接入，当前不展示示例催化剂。"
+    }
+  ] satisfies ResearchSnapshot["dataStatus"]["modules"];
 
   if (!profile) warn("实时 FMP 公司资料暂不可用，页面仅使用最小兜底公司信息。");
   if (!quote) warn("实时 FMP 行情暂不可用，页面仅使用最小兜底行情。");
@@ -404,7 +466,8 @@ export async function getFmpResearchSnapshot(symbol: string): Promise<ResearchSn
     dataStatus: {
       mode: warnings.length > 0 ? "mixed" : "live",
       refreshedAt: now,
-      warnings
+      warnings,
+      modules: moduleStatus
     }
   };
 }

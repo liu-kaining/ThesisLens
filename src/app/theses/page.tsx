@@ -10,13 +10,13 @@ export default async function ThesesPage() {
       <AppNav showSearch />
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
         <section>
-          <p className="text-sm font-semibold text-steel">Thesis Tracker</p>
+          <p className="text-sm font-semibold text-steel">Thesis 跟踪</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-normal text-ink">
-            Track what must remain true.
+            跟踪必须继续成立的条件。
           </h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-muted">
-            A saved thesis turns research into a living checklist. The next step is to
-            connect each thesis to signals, alerts, filings, and watchlist changes.
+            保存后的 thesis 会变成一张动态检查清单。下一步可以把每条 thesis
+            连接到信号、提醒、SEC 文件和观察列表变化。
           </p>
         </section>
         <ThesesClient initialTheses={theses} />
@@ -24,4 +24,3 @@ export default async function ThesesPage() {
     </main>
   );
 }
-

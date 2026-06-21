@@ -1,5 +1,6 @@
 import { getAlertRules } from "@/lib/server/db";
 import { getCompanyResearch } from "@/lib/server/research";
+import { alertTypeLabel } from "@/lib/labels";
 
 export type EvaluatedAlert = {
   id: string;
@@ -54,10 +55,9 @@ export async function getEvaluatedAlerts(): Promise<EvaluatedAlert[]> {
         currentValue,
         triggered,
         explanation: triggered
-          ? `${rule.symbol} currently meets the ${rule.alertType} alert condition.`
-          : `${rule.symbol} has not crossed the configured ${rule.alertType} threshold.`
+          ? `${rule.symbol} 当前已经满足 ${alertTypeLabel(rule.alertType)} 提醒条件。`
+          : `${rule.symbol} 尚未触发已配置的 ${alertTypeLabel(rule.alertType)} 阈值。`
       };
     })
   );
 }
-

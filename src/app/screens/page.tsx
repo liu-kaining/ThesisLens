@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { AppNav } from "@/components/app-nav";
 import { formatCurrency, formatPercent } from "@/lib/format";
+import { directionLabel } from "@/lib/labels";
 import { getResearchScreens } from "@/lib/server/screens";
 import type { Direction } from "@/lib/types";
 
@@ -19,13 +20,13 @@ export default async function ScreensPage() {
       <AppNav showSearch />
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
         <section>
-          <p className="text-sm font-semibold text-steel">Research Screens</p>
+          <p className="text-sm font-semibold text-steel">研究选股器</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-normal text-ink">
-            Screen for explanations, not just factors.
+            不只筛因子，还要筛解释。
           </h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-muted">
-            Each screen is generated from ThesisLens scores and signal evidence. The goal is
-            to surface companies worth researching, then explain the question to answer.
+            每个选股器都来自 ThesisLens 的分数和证据信号。目标不是直接给答案，
+            而是找出值得研究的公司，并说明下一步要回答的问题。
           </p>
         </section>
 
@@ -38,7 +39,7 @@ export default async function ScreensPage() {
                   <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">{screen.description}</p>
                 </div>
                 <span className="rounded bg-canvas px-2 py-1 text-xs font-semibold text-muted">
-                  {screen.results.length} names
+                  {screen.results.length} 个标的
                 </span>
               </div>
 
@@ -46,12 +47,12 @@ export default async function ScreensPage() {
                 <table className="w-full border-collapse text-left text-sm">
                   <thead className="bg-canvas text-xs uppercase tracking-wide text-muted">
                     <tr>
-                      <th className="px-4 py-3">Symbol</th>
-                      <th className="hidden px-4 py-3 md:table-cell">Thesis Question</th>
-                      <th className="px-4 py-3">Price</th>
-                      <th className="px-4 py-3">Quality</th>
-                      <th className="px-4 py-3">Valuation</th>
-                      <th className="px-4 py-3">Expect.</th>
+                      <th className="px-4 py-3">代码</th>
+                      <th className="hidden px-4 py-3 md:table-cell">Thesis 问题</th>
+                      <th className="px-4 py-3">价格</th>
+                      <th className="px-4 py-3">质量</th>
+                      <th className="px-4 py-3">估值</th>
+                      <th className="px-4 py-3">预期</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -63,7 +64,7 @@ export default async function ScreensPage() {
                           </Link>
                           <p className="max-w-44 truncate text-xs text-muted">{result.name}</p>
                           <span className={`mt-2 inline-block rounded border px-2 py-1 text-xs ${directionClass[result.direction]}`}>
-                            {result.direction}
+                            {directionLabel(result.direction)}
                           </span>
                         </td>
                         <td className="hidden max-w-xl px-4 py-4 leading-6 text-muted md:table-cell">
@@ -90,4 +91,3 @@ export default async function ScreensPage() {
     </main>
   );
 }
-

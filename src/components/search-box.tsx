@@ -73,9 +73,9 @@ export function SearchBox({ compact = false }: SearchBoxProps) {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onFocus={() => results.length > 0 && setOpen(true)}
-          placeholder="Search ticker or company"
+          placeholder="搜索股票代码或公司"
           className="min-w-0 flex-1 bg-transparent text-sm font-medium text-ink outline-none placeholder:text-muted"
-          aria-label="Search ticker or company"
+          aria-label="搜索股票代码或公司"
         />
         {query ? (
           <button
@@ -85,7 +85,7 @@ export function SearchBox({ compact = false }: SearchBoxProps) {
               setResults([]);
             }}
             className="rounded p-1 text-muted transition hover:bg-canvas hover:text-ink"
-            aria-label="Clear search"
+            aria-label="清空搜索"
           >
             <X className="h-4 w-4" />
           </button>
@@ -94,14 +94,14 @@ export function SearchBox({ compact = false }: SearchBoxProps) {
           type="submit"
           className="rounded bg-ink px-3 py-2 text-xs font-semibold text-white transition hover:bg-steel"
         >
-          Open
+          打开
         </button>
       </form>
 
       {open ? (
         <div className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-md border border-line bg-white shadow-soft">
           {loading ? (
-            <div className="px-4 py-3 text-sm text-muted">Searching...</div>
+            <div className="px-4 py-3 text-sm text-muted">搜索中...</div>
           ) : results.length > 0 ? (
             results.map((result) => (
               <button
@@ -122,11 +122,10 @@ export function SearchBox({ compact = false }: SearchBoxProps) {
               </button>
             ))
           ) : (
-            <div className="px-4 py-3 text-sm text-muted">No matching U.S. equities found.</div>
+            <div className="px-4 py-3 text-sm text-muted">没有找到匹配的美股标的。</div>
           )}
         </div>
       ) : null}
     </div>
   );
 }
-

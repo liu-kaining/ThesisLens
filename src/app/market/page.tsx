@@ -11,14 +11,13 @@ export default async function MarketPage() {
       <AppNav showSearch />
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
         <section>
-          <p className="text-sm font-semibold text-steel">Market</p>
+          <p className="text-sm font-semibold text-steel">市场</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-normal text-ink">
-            Market context for the research day.
+            今天的市场研究背景。
           </h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-muted">
-            This page frames the current universe through quality, valuation, sector context,
-            and watchlist movement. Future live FMP expansion can add index constituents,
-            sector performance, treasury rates, and economic calendar feeds.
+            这里用质量、估值、行业背景和观察列表变化来描述当前研究池。
+            后续可以继续接入指数成分、行业表现、利率和经济日历等 FMP 数据。
           </p>
         </section>
 
@@ -45,26 +44,26 @@ export default async function MarketPage() {
                 </span>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-3">
-                <Metric label="Price" value={formatCurrency(company.price, false)} />
+                <Metric label="价格" value={formatCurrency(company.price, false)} />
                 <Metric label="P/E" value={formatRatio(company.pe, "x")} />
-                <Metric label="Market cap" value={formatCurrency(company.marketCap)} />
-                <Metric label="Quality" value={`${company.quality}`} />
+                <Metric label="市值" value={formatCurrency(company.marketCap)} />
+                <Metric label="质量" value={`${company.quality}`} />
               </div>
             </Link>
           ))}
         </section>
 
         <section className="rounded-md border border-line bg-white p-5 shadow-sm">
-          <h2 className="text-sm font-semibold text-ink">Sector Snapshot</h2>
+          <h2 className="text-sm font-semibold text-ink">行业快照</h2>
           <div className="mt-4 overflow-hidden rounded-md border border-line">
             <table className="w-full border-collapse text-left text-sm">
               <thead className="bg-canvas text-xs uppercase tracking-wide text-muted">
                 <tr>
-                  <th className="px-4 py-3">Sector</th>
-                  <th className="px-4 py-3">Names</th>
-                  <th className="px-4 py-3">Avg move</th>
-                  <th className="px-4 py-3">Avg quality</th>
-                  <th className="px-4 py-3">Avg valuation</th>
+                  <th className="px-4 py-3">行业</th>
+                  <th className="px-4 py-3">标的数</th>
+                  <th className="px-4 py-3">平均涨跌</th>
+                  <th className="px-4 py-3">平均质量</th>
+                  <th className="px-4 py-3">平均估值</th>
                 </tr>
               </thead>
               <tbody>

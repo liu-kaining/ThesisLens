@@ -9,7 +9,7 @@ const checks = [
   {
     name: "dashboard",
     path: "/",
-    expect: ["ThesisLens", "Watchlist Changes", "Research Candidates"]
+    expect: ["ThesisLens", "观察列表变化", "研究候选"]
   },
   {
     name: "company page",

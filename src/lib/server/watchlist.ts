@@ -55,50 +55,50 @@ function buildChangeBadges(research: EnrichedResearch): WatchlistChangeBadge[] {
   return [
     {
       category: "price",
-      label: "Price",
+      label: "价格",
       direction: priceMove > 0 ? "positive" : priceMove < 0 ? "negative" : "neutral",
-      detail: `${formatPercent(priceMove)} today at ${formatCurrency(snapshot.quote.price, false)}`
+      detail: `今日 ${formatPercent(priceMove)}，当前价 ${formatCurrency(snapshot.quote.price, false)}`
     },
     {
       category: "fundamentals",
-      label: "Fundamentals",
+      label: "基本面",
       direction: badgeDirectionFromScore(scoreValue(research, "quality")),
-      detail: `Quality ${scoreValue(research, "quality")}/100; revenue ${formatPercent(revenueGrowth, 1)}`
+      detail: `质量分 ${scoreValue(research, "quality")}/100；收入增长 ${formatPercent(revenueGrowth, 1)}`
     },
     {
       category: "estimates",
-      label: "Estimates",
+      label: "预期",
       direction:
         (estimate?.epsRevisionPercent ?? 0) > 1
           ? "positive"
           : (estimate?.epsRevisionPercent ?? 0) < -1
             ? "negative"
             : "neutral",
-      detail: `EPS revisions ${formatPercent(estimate?.epsRevisionPercent, 1)}`
+      detail: `EPS 预期修正 ${formatPercent(estimate?.epsRevisionPercent, 1)}`
     },
     {
       category: "events",
-      label: "Events",
+      label: "事件",
       direction: snapshot.upcomingEvents.some((event) => event.severity === "high") ? "mixed" : "neutral",
-      detail: eventCount ? `${eventCount} upcoming catalyst${eventCount === 1 ? "" : "s"}` : "No loaded catalyst"
+      detail: eventCount ? `${eventCount} 个近期催化剂` : "暂无已载入催化剂"
     },
     {
       category: "filings",
-      label: "Filings",
+      label: "SEC",
       direction: latestFiling?.formType === "8-K" ? "mixed" : "neutral",
-      detail: latestFiling ? `${latestFiling.formType} on ${latestFiling.filingDate}` : "No recent filing"
+      detail: latestFiling ? `${latestFiling.filingDate} 的 ${latestFiling.formType}` : "暂无近期文件"
     },
     {
       category: "behavior",
-      label: "Insider/Congress",
+      label: "行为",
       direction: badgeDirectionFromScore(scoreValue(research, "behavior")),
-      detail: `${behaviorCount} disclosure${behaviorCount === 1 ? "" : "s"} loaded`
+      detail: `已载入 ${behaviorCount} 条披露`
     },
     {
       category: "technical",
-      label: "Technical",
+      label: "技术面",
       direction: badgeDirectionFromScore(technicalScore),
-      detail: latestTechnical ? `RSI ${latestTechnical.rsi?.toFixed(0) ?? "N/A"}` : "No technical data"
+      detail: latestTechnical ? `RSI ${latestTechnical.rsi?.toFixed(0) ?? "N/A"}` : "暂无技术面数据"
     }
   ];
 }
@@ -113,7 +113,7 @@ export async function getEnrichedWatchlist() {
         name: model.snapshot.profile.name,
         price: model.snapshot.quote.price,
         changePercent: model.snapshot.quote.changesPercentage,
-        topSignal: model.signals[0]?.title ?? "No signal computed",
+        topSignal: model.signals[0]?.title ?? "暂无计算信号",
         score: Math.round(
           model.scores
             .filter((score) => ["quality", "valuation", "expectations"].includes(score.scoreType))

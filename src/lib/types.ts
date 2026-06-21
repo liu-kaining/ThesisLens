@@ -330,6 +330,12 @@ export type ResearchSnapshot = {
     mode: "mock" | "live" | "mixed";
     refreshedAt: string;
     warnings: string[];
+    modules?: Array<{
+      key: string;
+      label: string;
+      status: "live" | "unavailable" | "mock";
+      detail: string;
+    }>;
   };
 };
 

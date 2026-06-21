@@ -45,7 +45,7 @@ export function FinancialChart({ data }: FinancialChartProps) {
             cursor={{ fill: "#eef2e8" }}
             formatter={(value: number, name) => [
               formatCurrency(value * 1000000000),
-              name === "fcf" ? "Free cash flow" : String(name)
+              name === "fcf" ? "自由现金流" : name === "revenue" ? "收入" : String(name)
             ]}
             contentStyle={{ borderColor: "#d7ddd2", borderRadius: 6 }}
           />
@@ -84,7 +84,7 @@ export function PriceChart({ data }: PriceChartProps) {
           <Tooltip
             formatter={(value: number, name) => [
               name === "volume" ? formatNumber(value) : `$${value.toFixed(2)}`,
-              name
+              name === "close" ? "收盘价" : name === "sma50" ? "50 日均线" : String(name)
             ]}
             contentStyle={{ borderColor: "#d7ddd2", borderRadius: 6 }}
           />
@@ -108,4 +108,3 @@ export function PriceChart({ data }: PriceChartProps) {
     </div>
   );
 }
-

@@ -29,7 +29,7 @@ export async function getPortfolioModel() {
         quality,
         valuation,
         eventRisk,
-        topSignal: research.signals[0]?.title ?? "No signal computed"
+        topSignal: research.signals[0]?.title ?? "暂无计算信号"
       };
     })
   );
@@ -70,4 +70,3 @@ export async function getPortfolioModel() {
     }))
   };
 }
-
