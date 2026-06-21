@@ -24,9 +24,10 @@ const checks = [
     "sec-filings-search/symbol",
     { symbol, from: "2025-01-01", to: "2026-12-31", page: "0", limit: "1" }
   ],
-  ["insider trading", "insider-trading", { symbol, page: "0", limit: "1" }],
-  ["senate trading", "senate-trading", { symbol, page: "0", limit: "1" }],
-  ["house trading", "house-trading", { symbol, page: "0", limit: "1" }],
+  ["insider trading", "insider-trading/search", { symbol, page: "0", limit: "1" }],
+  ["senate trades", "senate-trades", { symbol }],
+  ["house trades", "house-trades", { symbol }],
+  ["earnings", "earnings", { symbol }],
   ["historical eod", "historical-price-eod/light", { symbol, from: "2026-01-01", to: "2026-12-31" }],
   ["stock peers", "stock-peers", { symbol }],
   ["13f institutional ownership", "institutional-ownership/latest", { symbol }],
@@ -110,4 +111,3 @@ console.log(
     2
   )
 );
-

@@ -146,6 +146,9 @@ export type InsiderTransaction = {
   price?: number;
   value?: number;
   ownershipType?: string;
+  formType?: string;
+  securityName?: string;
+  sourceUrl?: string;
 };
 
 export type CongressionalTransaction = {
@@ -159,7 +162,11 @@ export type CongressionalTransaction = {
   filingDate?: string;
   amountMin?: number;
   amountMax?: number;
+  amountLabel?: string;
   assetDescription?: string;
+  owner?: string;
+  office?: string;
+  sourceUrl?: string;
 };
 
 export type TechnicalPoint = {

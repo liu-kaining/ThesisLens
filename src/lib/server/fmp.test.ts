@@ -143,7 +143,7 @@ describe("FMP adapter", () => {
     expect(snapshot.dataStatus.mode).toBe("mixed");
     expect(snapshot.dataStatus.warnings.join(" ")).toContain("公司资料暂不可用");
     expect(snapshot.dataStatus.modules?.some((module) => module.status === "unavailable")).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(22);
+    expect(fetchMock).toHaveBeenCalledTimes(23);
     expect(profileStatus).toMatchObject({
       path: "profile",
       ok: false,

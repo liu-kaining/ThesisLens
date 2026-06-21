@@ -6,7 +6,6 @@ import {
   BarChart3,
   BookOpenText,
   Building2,
-  CheckCircle2,
   FileText,
   LineChart,
   Scale,
@@ -26,35 +25,24 @@ import {
   formatRatio
 } from "@/lib/format";
 import {
-  confidenceLabel,
   dataModeLabel,
   evidenceSourceLabel,
   scoreTypeLabel,
-  signalCategoryLabel
 } from "@/lib/labels";
 import type {
   CompanyScore,
   Direction,
   EnrichedResearch,
   Evidence,
-  ResearchMemo,
   ResearchSnapshot,
-  Signal
 } from "@/lib/types";
 
 type CompanyPageProps = {
   research: EnrichedResearch;
 };
 
-const directionClass: Record<Direction, string> = {
-  positive: "border-moss bg-[#f2f6ec] text-moss",
-  negative: "border-brick bg-[#fff1ef] text-brick",
-  neutral: "border-line bg-white text-muted",
-  mixed: "border-amber bg-[#fff7e8] text-amber"
-};
-
 export function CompanyPage({ research }: CompanyPageProps) {
-  const { snapshot, evidence, scores, signals, memo } = research;
+  const { snapshot, evidence, scores } = research;
   const latestFinancial = snapshot.financials[0];
   const latestMetric = snapshot.metrics[0];
   const estimate = snapshot.analystEstimates[0];
@@ -124,16 +112,12 @@ export function CompanyPage({ research }: CompanyPageProps) {
 
         <section className="grid gap-6 lg:grid-cols-[1fr_0.8fr]">
           <div className="rounded-md border border-line bg-white p-5 shadow-sm">
-            <SectionTitle icon={<Sparkles className="h-4 w-4" />} title="今日结论" />
-            <div className="mt-4 grid gap-3">
-              {signals.slice(0, 4).map((signal) => (
-                <SignalCard key={signal.id} signal={signal} evidence={evidence} />
-              ))}
-            </div>
+            <SectionTitle icon={<Sparkles className="h-4 w-4" />} title="核心数据快照" />
+            <QuickFacts snapshot={snapshot} />
           </div>
 
           <div className="rounded-md border border-line bg-white p-5 shadow-sm">
-            <SectionTitle icon={<Scale className="h-4 w-4" />} title="评分矩阵" />
+            <SectionTitle icon={<Scale className="h-4 w-4" />} title="计算指标（仅供排序）" />
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               {scores.slice(0, 8).map((score) => (
                 <ScoreCard key={score.id} score={score} />
@@ -201,22 +185,39 @@ export function CompanyPage({ research }: CompanyPageProps) {
 
           <Panel icon={<Users className="h-4 w-4" />} title="内幕与国会交易">
             <div className="flex flex-col gap-3">
-              {snapshot.insiders.slice(0, 2).map((item) => (
-                <MiniEvent
-                  key={item.id}
-                  title={`${item.reportingName} ${item.transactionType}`}
-                  detail={`${item.role || "内幕人士"} · ${formatCurrency(item.value)}`}
-                  date={item.transactionDate}
-                />
-              ))}
-              {snapshot.congress.slice(0, 2).map((item) => (
-                <MiniEvent
-                  key={item.id}
-                  title={`${item.chamber} ${item.transactionType}`}
-                  detail={`${item.representativeName} · ${item.assetDescription || snapshot.profile.symbol}`}
-                  date={item.transactionDate}
-                />
-              ))}
+	              {snapshot.insiders.slice(0, 2).map((item) => (
+	                <MiniEvent
+	                  key={item.id}
+	                  title={`${item.reportingName} ${item.transactionType}`}
+	                  detail={[
+                      item.role || "内幕人士",
+                      item.securityName || null,
+                      item.shares ? `${formatNumber(item.shares)} 股` : null,
+                      item.price ? `${formatCurrency(item.price, false)}/股` : null,
+                      item.value ? formatCurrency(item.value) : null
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+	                  date={item.transactionDate}
+                    url={item.sourceUrl}
+	                />
+	              ))}
+	              {snapshot.congress.slice(0, 2).map((item) => (
+	                <MiniEvent
+	                  key={item.id}
+	                  title={`${item.chamber} ${item.transactionType}`}
+	                  detail={[
+                      item.representativeName,
+                      item.assetDescription || snapshot.profile.symbol,
+                      item.amountLabel || amountRangeLabel(item.amountMin, item.amountMax),
+                      item.owner || null
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+	                  date={item.transactionDate}
+                    url={item.sourceUrl}
+	                />
+	              ))}
               {!snapshot.insiders.length && !snapshot.congress.length ? (
                 <p className="text-sm text-muted">当前没有载入近期行为披露。</p>
               ) : null}
@@ -265,8 +266,8 @@ export function CompanyPage({ research }: CompanyPageProps) {
         </section>
 
         <section className="grid gap-6 lg:grid-cols-[1fr_0.85fr]">
-          <Panel icon={<BookOpenText className="h-4 w-4" />} title="规则研究备忘录">
-            <Memo memo={memo} evidence={evidence} />
+          <Panel icon={<BookOpenText className="h-4 w-4" />} title="客观数据摘要">
+            <ObjectiveDataSummary snapshot={snapshot} scores={scores} />
           </Panel>
 
           <Panel icon={<ShieldQuestion className="h-4 w-4" />} title="证据账本">
@@ -372,38 +373,36 @@ function Metric({
   );
 }
 
-function SignalCard({ signal, evidence }: { signal: Signal; evidence: Evidence[] }) {
-  const linked = evidence.filter((item) => signal.evidenceIds.includes(item.id)).slice(0, 3);
-  const sources = Array.from(new Set(linked.map((item) => evidenceSourceLabel(item.source))));
+function QuickFacts({ snapshot }: { snapshot: ResearchSnapshot }) {
+  const latestFinancial = snapshot.financials[0];
+  const latestMetric = snapshot.metrics[0];
+  const latestTechnical = snapshot.technicals.at(-1);
+  const nextEvent = snapshot.upcomingEvents[0];
+  const latestFiling = snapshot.filings[0];
+
+  const facts = [
+    ["价格", formatCurrency(snapshot.quote.price, false), `日内 ${formatPercent(snapshot.quote.changesPercentage)}`],
+    ["市值", formatCurrency(snapshot.quote.marketCap), `成交量 ${formatNumber(snapshot.quote.volume)}`],
+    ["收入", formatCurrency(latestFinancial?.revenue), latestFinancial ? `${latestFinancial.fiscalYear} 财年` : "N/A"],
+    ["自由现金流", formatCurrency(latestFinancial?.freeCashFlow), "最近财年"],
+    ["营业利润率", formatPercent(latestMetric?.operatingMargin), "FMP ratios"],
+    ["一致目标价", formatCurrency(snapshot.priceTarget.targetConsensus, false), snapshot.priceTarget.updatedAt ? dateShort(snapshot.priceTarget.updatedAt) : "N/A"],
+    ["下一财报", nextEvent ? dateShort(nextEvent.date) : "N/A", nextEvent?.description ?? "暂无未来事件"],
+    ["最新 SEC", latestFiling ? `${latestFiling.formType} · ${dateShort(latestFiling.filingDate)}` : "N/A", latestFiling?.title ?? "暂无文件"],
+    ["行为披露", `${snapshot.insiders.length} 内幕 / ${snapshot.congress.length} 国会`, "仅披露事实"],
+    ["最新技术日", latestTechnical ? dateShort(latestTechnical.date) : "N/A", latestTechnical ? `收盘 ${formatCurrency(latestTechnical.close, false)}` : "N/A"]
+  ];
 
   return (
-    <article className="rounded-md border border-line p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <span className={`rounded border px-2 py-1 text-xs ${directionClass[signal.direction]}`}>
-            {signalCategoryLabel(signal.category)}
-          </span>
-          <h3 className="mt-3 text-base font-semibold text-ink">{signal.title}</h3>
+    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+      {facts.map(([label, value, detail]) => (
+        <div key={label} className="rounded-md border border-line p-3">
+          <p className="text-xs font-semibold text-muted">{label}</p>
+          <p className="mt-1 break-words text-base font-semibold text-ink">{value}</p>
+          <p className="mt-1 line-clamp-2 text-xs text-muted">{detail}</p>
         </div>
-        <span className="rounded bg-canvas px-2 py-1 text-xs font-semibold text-muted">
-          置信度 {Math.round(signal.confidence * 100)}%
-        </span>
-      </div>
-      <p className="mt-2 text-sm leading-6 text-muted">{signal.summary}</p>
-      {linked.length > 0 ? (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {linked.map((item) => (
-            <span key={item.id} className="rounded border border-line px-2 py-1 text-xs text-muted">
-              {item.label}
-            </span>
-          ))}
-        </div>
-      ) : null}
-      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted">
-        <span>{dateShort(signal.computedAt)}</span>
-        {sources.length > 0 ? <span>来源：{sources.join(", ")}</span> : null}
-      </div>
-    </article>
+      ))}
+    </div>
   );
 }
 
@@ -476,81 +475,206 @@ function MiniEvent({
   );
 }
 
-function Memo({ memo, evidence }: { memo: ResearchMemo; evidence: Evidence[] }) {
-  const sections = [
-    ["发生了什么变化", memo.whatChanged],
-    ["基本面质量", memo.businessQuality],
-    ["估值", memo.valuation],
-    ["分析师预期", memo.expectations],
-    ["催化剂与风险", memo.catalystsAndRisks],
-    ["行为信号", memo.behaviorSignals],
-    ["多头 case", memo.bullCase],
-    ["空头 case", memo.bearCase]
-  ] as const;
+function ObjectiveDataSummary({ snapshot, scores }: { snapshot: ResearchSnapshot; scores: CompanyScore[] }) {
+  const latestFinancial = snapshot.financials[0];
+  const latestMetric = snapshot.metrics[0];
+  const latestTechnical = snapshot.technicals.at(-1);
+  const score = (type: CompanyScore["scoreType"]) =>
+    scores.find((item) => item.scoreType === type)?.score ?? "N/A";
 
   return (
-    <div>
-      <div className="rounded-md border border-line bg-canvas p-4">
-        <div className="mb-2 flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted">
-          <Sparkles className="h-4 w-4" />
-          <span>规则生成 · {dateShort(memo.generatedAt)}</span>
-          <span className="rounded border border-line px-2 py-1 normal-case tracking-normal">
-            仅用于研究，不构成投资建议
-          </span>
-        </div>
-        <p className="text-sm leading-6 text-ink">{memo.executiveSummary}</p>
-      </div>
+    <div className="grid gap-4">
+      <DataBlock
+        title="数据时间与覆盖"
+        rows={[
+          ["FMP 刷新时间", dateShort(snapshot.dataStatus.refreshedAt)],
+          ["数据模式", dataModeLabel(snapshot.dataStatus.mode)],
+          ["财务期数", `${snapshot.financials.length}`],
+          ["新闻/公告", `${snapshot.news.length}`],
+          ["SEC 文件", `${snapshot.filings.length}`],
+          ["行为披露", `${snapshot.insiders.length + snapshot.congress.length}`]
+        ]}
+      />
 
-      <div className="mt-4 grid gap-3">
-        {sections.map(([title, section]) => {
-          const sectionEvidence = evidence.filter((item) => section.evidenceIds.includes(item.id)).slice(0, 4);
+      <DataBlock
+        title="行情与基础指标"
+        rows={[
+          ["价格", formatCurrency(snapshot.quote.price, false)],
+          ["日内涨跌", formatPercent(snapshot.quote.changesPercentage)],
+          ["市值", formatCurrency(snapshot.quote.marketCap)],
+          ["成交量", formatNumber(snapshot.quote.volume)],
+          ["P/E", formatRatio(snapshot.quote.pe, "x")],
+          ["52 周高/低", `${formatCurrency(snapshot.quote.yearHigh, false)} / ${formatCurrency(snapshot.quote.yearLow, false)}`]
+        ]}
+      />
 
-          return (
-            <div key={title} className="rounded-md border border-line p-4">
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <h3 className="text-sm font-semibold text-ink">{title}</h3>
-                <span className="rounded bg-canvas px-2 py-1 text-xs text-muted">
-                  {confidenceLabel(section.confidence)}
-                </span>
-              </div>
-              <p className="text-sm leading-6 text-muted">{section.summary}</p>
-              {sectionEvidence.length > 0 ? (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {sectionEvidence.map((item) => (
-                    <span key={item.id} className="rounded border border-line px-2 py-1 text-xs text-muted">
-                      {item.label}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
+      <DataBlock
+        title="财务与质量数据"
+        rows={[
+          ["最近财年", latestFinancial ? `${latestFinancial.fiscalYear}` : "N/A"],
+          ["收入", formatCurrency(latestFinancial?.revenue)],
+          ["净利润", formatCurrency(latestFinancial?.netIncome)],
+          ["自由现金流", formatCurrency(latestFinancial?.freeCashFlow)],
+          ["毛利率", formatPercent(latestMetric?.grossMargin)],
+          ["营业利润率", formatPercent(latestMetric?.operatingMargin)],
+          ["ROE", formatPercent(latestMetric?.roe)],
+          ["Piotroski / Altman", `${snapshot.scores.piotroskiScore ?? "N/A"} / ${snapshot.scores.altmanZScore ?? "N/A"}`]
+        ]}
+      />
 
-      <div className="mt-4 rounded-md border border-line p-4">
-        <h3 className="mb-3 text-sm font-semibold text-ink">需要回答的问题</h3>
-        <div className="flex flex-col gap-2">
-          {memo.keyQuestions.map((question) => (
-            <div key={question} className="flex gap-2 text-sm leading-6 text-muted">
-              <CheckCircle2 className="mt-1 h-4 w-4 flex-none text-moss" />
-              {question}
-            </div>
-          ))}
-        </div>
-      </div>
+      <DataBlock
+        title="估值与预期数据"
+        rows={[
+          ["DCF / Levered DCF", `${formatCurrency(snapshot.valuation.dcf, false)} / ${formatCurrency(snapshot.valuation.leveredDcf, false)}`],
+          ["一致目标价", formatCurrency(snapshot.priceTarget.targetConsensus, false)],
+          ["目标价高/低", `${formatCurrency(snapshot.priceTarget.targetHigh, false)} / ${formatCurrency(snapshot.priceTarget.targetLow, false)}`],
+          ["评级", snapshot.rating.rating || "N/A"],
+          ["质量/估值/预期计算分", `${score("quality")} / ${score("valuation")} / ${score("expectations")}`],
+          ["最新技术日期", latestTechnical ? dateShort(latestTechnical.date) : "N/A"],
+          ["RSI / 50 日均线", `${latestTechnical?.rsi?.toFixed(0) ?? "N/A"} / ${formatCurrency(latestTechnical?.sma50, false)}`]
+        ]}
+      />
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        {evidence
-          .filter((item) => memo.evidenceIds.includes(item.id))
-          .slice(0, 10)
-          .map((item) => (
-            <span key={item.id} className="rounded border border-line px-2 py-1 text-xs text-muted">
-              {item.label}
-            </span>
-          ))}
+      <CompactTable
+        title="分析师预期明细"
+        headers={["财年", "EPS 预期", "收入预期", "覆盖数", "EPS 修正"]}
+        rows={snapshot.analystEstimates.slice(0, 4).map((item) => [
+          `${item.fiscalYear}`,
+          item.estimatedEpsAvg?.toFixed(2) ?? "N/A",
+          formatCurrency(item.estimatedRevenueAvg),
+          `${item.analysts ?? "N/A"}`,
+          formatPercent(item.epsRevisionPercent)
+        ])}
+      />
+
+      <CompactTable
+        title="近期事件与文件"
+        headers={["日期", "类型", "标题", "说明"]}
+        rows={[
+          ...snapshot.upcomingEvents.slice(0, 3).map((item) => [
+            dateShort(item.date),
+            "财报",
+            item.title,
+            item.description ?? "N/A"
+          ]),
+          ...snapshot.filings.slice(0, 5).map((item) => [
+            dateShort(item.filingDate),
+            item.formType,
+            item.title,
+            item.url ? <ExternalLink href={item.url}>原文</ExternalLink> : "N/A"
+          ])
+        ]}
+      />
+
+      <CompactTable
+        title="近期内幕与国会披露"
+        headers={["日期", "来源", "主体", "类型", "金额/数量", "详情"]}
+        rows={[
+          ...snapshot.insiders.slice(0, 5).map((item) => [
+            dateShort(item.transactionDate),
+            "内幕",
+            item.reportingName,
+            item.transactionType,
+            [item.shares ? `${formatNumber(item.shares)} 股` : null, item.value ? formatCurrency(item.value) : null]
+              .filter(Boolean)
+              .join(" / ") || "N/A",
+            item.sourceUrl ? <ExternalLink href={item.sourceUrl}>查看</ExternalLink> : "N/A"
+          ]),
+          ...snapshot.congress.slice(0, 5).map((item) => [
+            dateShort(item.transactionDate),
+            item.chamber,
+            item.representativeName,
+            item.transactionType,
+            item.amountLabel || amountRangeLabel(item.amountMin, item.amountMax) || "N/A",
+            item.sourceUrl ? <ExternalLink href={item.sourceUrl}>查看</ExternalLink> : "N/A"
+          ])
+        ]}
+      />
+
+      <CompactTable
+        title="最新新闻与公告"
+        headers={["日期", "来源", "标题"]}
+        rows={snapshot.news.slice(0, 6).map((item) => [
+          dateShort(item.publishedAt),
+          item.publisher,
+          item.url ? <ExternalLink href={item.url}>{item.title}</ExternalLink> : item.title
+        ])}
+      />
+    </div>
+  );
+}
+
+function amountRangeLabel(min?: number, max?: number) {
+  if (min !== undefined && max !== undefined) return `${formatCurrency(min, false)} - ${formatCurrency(max, false)}`;
+  if (min !== undefined) return formatCurrency(min, false);
+  return "";
+}
+
+function DataBlock({ title, rows }: { title: string; rows: Array<[string, React.ReactNode]> }) {
+  return (
+    <div className="rounded-md border border-line p-4">
+      <h3 className="text-sm font-semibold text-ink">{title}</h3>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {rows.map(([label, value]) => (
+          <div key={label} className="rounded border border-line bg-canvas px-3 py-2">
+            <p className="text-xs font-semibold text-muted">{label}</p>
+            <p className="mt-1 break-words text-sm font-semibold text-ink">{value}</p>
+          </div>
+        ))}
       </div>
     </div>
+  );
+}
+
+function CompactTable({
+  title,
+  headers,
+  rows
+}: {
+  title: string;
+  headers: string[];
+  rows: React.ReactNode[][];
+}) {
+  return (
+    <div className="rounded-md border border-line p-4">
+      <h3 className="text-sm font-semibold text-ink">{title}</h3>
+      {rows.length > 0 ? (
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[560px] border-collapse text-left text-sm">
+            <thead className="text-xs text-muted">
+              <tr>
+                {headers.map((header) => (
+                  <th key={header} className="border-b border-line px-3 py-2 font-semibold">
+                    {header}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, rowIndex) => (
+                <tr key={rowIndex} className="border-b border-line last:border-b-0">
+                  {row.map((cell, cellIndex) => (
+                    <td key={cellIndex} className="px-3 py-2 align-top text-muted">
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="mt-3 text-sm text-muted">暂无可展示数据。</p>
+      )}
+    </div>
+  );
+}
+
+function ExternalLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <a href={href} target="_blank" rel="noreferrer" className="font-semibold text-steel hover:text-ink">
+      {children}
+    </a>
   );
 }
 

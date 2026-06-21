@@ -1,4 +1,5 @@
 import { getMockSnapshot, mockSearchResults } from "@/lib/mock-data";
+import { formatCurrency } from "@/lib/format";
 import { z } from "zod";
 import type {
   AnalystEstimate,
@@ -127,6 +128,20 @@ function optionalNum(record: Dict | undefined, keys: string[]) {
   return Number.isNaN(value) ? undefined : value;
 }
 
+function dateTime(record: Dict | undefined, keys: string[]) {
+  const value = str(record, keys, "");
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function amountRange(value: string) {
+  const matches = value.match(/[\d,]+(?:\.\d+)?/g)?.map((match) => Number(match.replace(/,/g, ""))) ?? [];
+  return {
+    min: matches[0],
+    max: matches[1]
+  };
+}
+
 async function fmpRequest<T>(
   path: string,
   params: Record<string, string | number | undefined> = {},
@@ -242,6 +257,8 @@ export async function getFmpResearchSnapshot(symbol: string): Promise<ResearchSn
   from.setDate(today.getDate() - 120);
   const fromDate = from.toISOString().slice(0, 10);
   const toDate = today.toISOString().slice(0, 10);
+  const future = new Date(today);
+  future.setDate(today.getDate() + 180);
 
   const [
     profileRaw,
@@ -264,6 +281,7 @@ export async function getFmpResearchSnapshot(symbol: string): Promise<ResearchSn
     insiderRaw,
     senateRaw,
     houseRaw,
+    earningsRaw,
     historicalRaw,
     peersRaw
   ] = await Promise.all([
@@ -284,9 +302,10 @@ export async function getFmpResearchSnapshot(symbol: string): Promise<ResearchSn
     fmpRequest<unknown[]>("news/stock", { symbols: normalized, limit: 8 }, 900, fmpRecordArraySchema),
     fmpRequest<unknown[]>("news/press-releases", { symbol: normalized, limit: 5 }, 1800, fmpRecordArraySchema),
     fmpRequest<unknown[]>("sec-filings-search/symbol", { symbol: normalized, from: fromDate, to: toDate, page: 0, limit: 12 }, 1800, filingResponseSchema),
-    fmpRequest<unknown[]>("insider-trading", { symbol: normalized, page: 0, limit: 12 }, 3600, fmpRecordArraySchema),
-    fmpRequest<unknown[]>("senate-trading", { symbol: normalized, page: 0, limit: 10 }, 3600, fmpRecordArraySchema),
-    fmpRequest<unknown[]>("house-trading", { symbol: normalized, page: 0, limit: 10 }, 3600, fmpRecordArraySchema),
+    fmpRequest<unknown[]>("insider-trading/search", { symbol: normalized, page: 0, limit: 12 }, 3600, fmpRecordArraySchema),
+    fmpRequest<unknown[]>("senate-trades", { symbol: normalized }, 3600, fmpRecordArraySchema),
+    fmpRequest<unknown[]>("house-trades", { symbol: normalized }, 3600, fmpRecordArraySchema),
+    fmpRequest<unknown[]>("earnings", { symbol: normalized }, 21600, fmpRecordArraySchema),
     fmpRequest<unknown[]>("historical-price-eod/light", { symbol: normalized, from: fromDate, to: toDate }, 3600, fmpRecordArraySchema),
     fmpRequest<unknown[]>("stock-peers", { symbol: normalized }, 86400, fmpRecordArraySchema)
   ]);
@@ -308,6 +327,7 @@ export async function getFmpResearchSnapshot(symbol: string): Promise<ResearchSn
   const filings = normalizeFilings(filingsRaw);
   const insiders = normalizeInsiders(insiderRaw);
   const congress = [...normalizeCongress(senateRaw, "Senate"), ...normalizeCongress(houseRaw, "House")];
+  const upcomingEvents = normalizeUpcomingEvents(earningsRaw, toDate, future.toISOString().slice(0, 10));
   const technicals = normalizeTechnicals(historicalRaw);
   const peers = normalizePeers(peersRaw);
   const now = new Date().toISOString();
@@ -387,8 +407,11 @@ export async function getFmpResearchSnapshot(symbol: string): Promise<ResearchSn
     {
       key: "calendar",
       label: "财报日历",
-      status: "unavailable",
-      detail: "实时财报日历尚未接入，当前不展示示例催化剂。"
+      status: asArray(earningsRaw).length > 0 ? "live" : "unavailable",
+      detail:
+        asArray(earningsRaw).length > 0
+          ? `已接入 FMP earnings，未来 180 天内 ${upcomingEvents.length} 个财报事件。`
+          : "FMP earnings 未返回可用财报事件。"
     }
   ] satisfies ResearchSnapshot["dataStatus"]["modules"];
 
@@ -403,15 +426,15 @@ export async function getFmpResearchSnapshot(symbol: string): Promise<ResearchSn
   warnMissing(!hasValuation, "DCF/企业价值", ["discounted-cash-flow", "levered-discounted-cash-flow", "enterprise-values"]);
   warnMissing(news.length === 0, "新闻/公告", ["news/stock", "news/press-releases"]);
   warnMissing(filings.length === 0, "SEC 文件", ["sec-filings-search/symbol"]);
-  if (insiders.length === 0 && endpointFailed("insider-trading")) {
+  if (insiders.length === 0 && endpointFailed("insider-trading/search")) {
     warn("实时 FMP 内幕交易端点暂不可用，行为模块不展示示例内幕交易。");
   }
-  if (congress.length === 0 && endpointFailed("senate-trading", "house-trading")) {
+  if (congress.length === 0 && endpointFailed("senate-trades", "house-trades")) {
     warn("实时 FMP 国会交易端点暂不可用，行为模块不展示示例国会交易。");
   }
   warnMissing(technicals.length === 0, "技术面价格序列", ["historical-price-eod/light"]);
   warnMissing(peers.length === 0, "同行公司", ["stock-peers"]);
-  warn("实时财报日历尚未接入，本页已隐藏示例催化剂。");
+  warnMissing(asArray(earningsRaw).length === 0, "财报日历", ["earnings"]);
 
   return {
     profile: profile
@@ -462,7 +485,7 @@ export async function getFmpResearchSnapshot(symbol: string): Promise<ResearchSn
     congress,
     technicals,
     peers,
-    upcomingEvents: [],
+    upcomingEvents,
     dataStatus: {
       mode: warnings.length > 0 ? "mixed" : "live",
       refreshedAt: now,
@@ -623,43 +646,109 @@ function normalizeFilings(raw: unknown[] | null): SecFiling[] {
 }
 
 function normalizeInsiders(raw: unknown[] | null): InsiderTransaction[] {
-  return asArray(raw).slice(0, 12).map((item, index) => ({
-    id: str(item, ["id"], `insider-${index}`),
-    reportingName: str(item, ["reportingName", "name"], "Unknown insider"),
-    role: str(item, ["typeOfOwner", "officerTitle"], ""),
-    transactionType: str(item, ["transactionType", "transactionCode"], "Transaction"),
-    transactionDate: str(item, ["transactionDate"], ""),
-    filingDate: str(item, ["filingDate", "fileDate"], ""),
-    shares: optionalNum(item, ["securitiesTransacted", "shares"]),
-    price: optionalNum(item, ["price"]),
-    value: optionalNum(item, ["value"]),
-    ownershipType: str(item, ["ownershipType", "directOrIndirectOwnership"], "")
-  }));
+  return asArray(raw)
+    .sort((a, b) => dateTime(b, ["transactionDate", "filingDate"]) - dateTime(a, ["transactionDate", "filingDate"]))
+    .slice(0, 12)
+    .map((item, index) => ({
+      id: str(item, ["id", "url"], `insider-${index}`),
+      reportingName: str(item, ["reportingName", "name"], "Unknown insider"),
+      role: str(item, ["typeOfOwner", "officerTitle"], ""),
+      transactionType: str(item, ["transactionType", "transactionCode", "acquisitionOrDisposition"], "Transaction"),
+      transactionDate: str(item, ["transactionDate"], ""),
+      filingDate: str(item, ["filingDate", "fileDate"], ""),
+      shares: optionalNum(item, ["securitiesTransacted", "shares", "securitiesOwned"]),
+      price: optionalNum(item, ["price"]),
+      value: optionalNum(item, ["value"]),
+      ownershipType: str(item, ["ownershipType", "directOrIndirectOwnership", "directOrIndirect"], ""),
+      formType: str(item, ["formType"], ""),
+      securityName: str(item, ["securityName"], ""),
+      sourceUrl: str(item, ["url", "link", "finalLink"], "")
+    }));
 }
 
 function normalizeCongress(raw: unknown[] | null, chamber: "Senate" | "House"): CongressionalTransaction[] {
-  return asArray(raw).slice(0, 10).map((item, index) => ({
-    id: str(item, ["id"], `${chamber.toLowerCase()}-${index}`),
-    chamber,
-    representativeName: str(item, ["representative", "representativeName", "senator", "name"], "Unknown member"),
-    party: str(item, ["party"], ""),
-    state: str(item, ["state"], ""),
-    transactionType: str(item, ["transactionType", "type"], "Transaction"),
-    transactionDate: str(item, ["transactionDate", "transactionDateFrom"], ""),
-    filingDate: str(item, ["disclosureDate", "filingDate"], ""),
-    amountMin: optionalNum(item, ["amountMin", "minAmount"]),
-    amountMax: optionalNum(item, ["amountMax", "maxAmount"]),
-    assetDescription: str(item, ["assetDescription", "assetName"], "")
-  }));
+  return asArray(raw)
+    .sort((a, b) => dateTime(b, ["transactionDate", "disclosureDate"]) - dateTime(a, ["transactionDate", "disclosureDate"]))
+    .slice(0, 10)
+    .map((item, index) => {
+      const firstName = str(item, ["firstName"], "");
+      const lastName = str(item, ["lastName"], "");
+      const amountLabel = str(item, ["amount"], "");
+      const parsedAmount = amountRange(amountLabel);
+
+      return {
+        id: str(item, ["id", "senateID", "link"], `${chamber.toLowerCase()}-${index}`),
+        chamber,
+        representativeName:
+          str(item, ["representative", "representativeName", "senator", "name"], "") ||
+          [firstName, lastName].filter(Boolean).join(" ") ||
+          "Unknown member",
+        party: str(item, ["party"], ""),
+        state: str(item, ["state", "district"], ""),
+        transactionType: str(item, ["transactionType", "type"], "Transaction"),
+        transactionDate: str(item, ["transactionDate", "transactionDateFrom"], ""),
+        filingDate: str(item, ["disclosureDate", "filingDate"], ""),
+        amountMin: optionalNum(item, ["amountMin", "minAmount"]) ?? parsedAmount.min,
+        amountMax: optionalNum(item, ["amountMax", "maxAmount"]) ?? parsedAmount.max,
+        amountLabel,
+        assetDescription: str(item, ["assetDescription", "assetName"], ""),
+        owner: str(item, ["owner"], ""),
+        office: str(item, ["office"], ""),
+        sourceUrl: str(item, ["link", "url", "finalLink"], "")
+      };
+    });
+}
+
+function normalizeUpcomingEvents(raw: unknown[] | null, fromDate: string, toDate: string): ResearchSnapshot["upcomingEvents"] {
+  const from = new Date(fromDate).getTime();
+  const to = new Date(toDate).getTime();
+
+  return asArray(raw)
+    .map((item, index) => {
+      const date = str(item, ["date"], "");
+      const eventTime = new Date(date).getTime();
+      const epsEstimated = optionalNum(item, ["epsEstimated"]);
+      const revenueEstimated = optionalNum(item, ["revenueEstimated"]);
+      const daysAway = Number.isFinite(eventTime) ? (eventTime - Date.now()) / (24 * 60 * 60 * 1000) : 999;
+
+      return {
+        id: str(item, ["id"], `earnings-${index}-${date}`),
+        type: "earnings" as const,
+        date,
+        title: "财报发布",
+        description: [
+          epsEstimated !== undefined ? `EPS 预期 ${epsEstimated.toFixed(2)}` : null,
+          revenueEstimated !== undefined ? `收入预期 ${formatCurrency(revenueEstimated)}` : null
+        ]
+          .filter(Boolean)
+          .join("，"),
+        severity: daysAway <= 21 ? ("high" as const) : ("medium" as const),
+        eventTime
+      };
+    })
+    .filter((event) => Number.isFinite(event.eventTime) && event.eventTime >= from && event.eventTime <= to)
+    .sort((a, b) => a.eventTime - b.eventTime)
+    .slice(0, 4)
+    .map((event) => ({
+      id: event.id,
+      type: event.type,
+      date: event.date,
+      title: event.title,
+      description: event.description || "FMP 已载入该公司未来财报日期，需要跟踪预期与实际值差异。",
+      severity: event.severity
+    }));
 }
 
 function normalizeTechnicals(raw: unknown[] | null): TechnicalPoint[] {
-  const rows = asArray(raw).slice(-60);
+  const rows = asArray(raw)
+    .filter((item) => str(item, ["date"], ""))
+    .sort((a, b) => dateTime(a, ["date"]) - dateTime(b, ["date"]))
+    .slice(-60);
   if (!rows.length) return [];
 
-  return rows.slice(-30).map((item, index, arr) => {
+  return rows.slice(-45).map((item, index, arr) => {
     const close = num(item, ["close", "price"]);
-    const window50 = arr.slice(Math.max(0, index - 10), index + 1).map((row) => num(row, ["close", "price"]));
+    const window50 = arr.slice(Math.max(0, index - 49), index + 1).map((row) => num(row, ["close", "price"]));
     const sma50 = window50.reduce((sum, value) => sum + value, 0) / Math.max(window50.length, 1);
 
     return {
