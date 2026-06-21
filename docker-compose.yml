@@ -3,12 +3,10 @@ services:
     build:
       context: .
     ports:
-      - "3000:3000"
+      - "${APP_HOST_PORT:-3009}:3000"
     environment:
-      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3009}
       FMP_API_KEY: ${FMP_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      AI_USE_OPENAI: ${AI_USE_OPENAI:-false}
       FMP_USE_MOCKS: ${FMP_USE_MOCKS:-true}
       DATABASE_URL: postgresql://thesislens:thesislens@postgres:5432/thesislens
       REDIS_URL: redis://redis:6379
@@ -30,8 +28,6 @@ services:
       APP_BASE_URL: http://app:3000
       WORKER_REFRESH_INTERVAL_MS: ${WORKER_REFRESH_INTERVAL_MS:-300000}
       FMP_API_KEY: ${FMP_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      AI_USE_OPENAI: ${AI_USE_OPENAI:-false}
       FMP_USE_MOCKS: ${FMP_USE_MOCKS:-true}
       DATABASE_URL: postgresql://thesislens:thesislens@postgres:5432/thesislens
       REDIS_URL: redis://redis:6379

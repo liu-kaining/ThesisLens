@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "ThesisLens",
-  description: "AI-assisted U.S. equity research workspace powered by FMP data."
+  description: "基于 FMP 数据的美股研究解释层。"
 };
 
 export default function RootLayout({
@@ -12,9 +12,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="zh-CN">
       <body>{children}</body>
     </html>
   );
 }
-

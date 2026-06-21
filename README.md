@@ -1,6 +1,6 @@
 # ThesisLens
 
-ThesisLens is an AI-assisted U.S. equity research workspace powered by Financial
+ThesisLens is a rules-based U.S. equity research workspace powered by Financial
 Modeling Prep data. It turns fundamentals, valuation, analyst expectations,
 events, SEC filings, news, insider transactions, congressional disclosures, and
 technical context into an evidence-backed investment thesis workflow.
@@ -15,7 +15,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3009](http://localhost:3009).
 
 Useful commands:
 
@@ -53,7 +53,7 @@ docker compose up --build
 The compose stack includes:
 
 - `app`: Next.js application.
-- `postgres`: durable watchlist, thesis, and AI memo persistence.
+- `postgres`: durable watchlist, thesis, and research memo persistence.
 - `redis`: distributed research snapshot cache.
 - `worker`: background watchlist refresh loop.
 
@@ -72,8 +72,6 @@ Important variables:
 
 - `FMP_API_KEY`: Financial Modeling Prep API key.
 - `FMP_USE_MOCKS`: `true` by default. Set to `false` to use live FMP data.
-- `OPENAI_API_KEY`: optional, only needed for model-generated memos.
-- `AI_USE_OPENAI`: `false` by default. Set to `true` to call OpenAI for memos.
 - `DATABASE_URL`: optional outside Docker. If missing/unavailable, memory fallback is used.
 - `DATABASE_DISABLED`: set to `true` to force memory fallback.
 - `REDIS_URL`: optional outside Docker. If missing/unavailable, memory cache fallback is used.
@@ -104,9 +102,9 @@ The current MVP includes:
 - Optional Redis-backed research cache with memory fallback.
 - Background worker for watchlist refresh in Docker.
 - Fundamental quality, valuation, expectations, events, behavior, technical,
-  peer, evidence, and AI memo sections.
+  peer, evidence, and rules-based research memo sections.
 - FMP adapter with graceful endpoint degradation.
-- Deterministic evidence-backed memo generation, with optional OpenAI support.
+- Deterministic evidence-backed memo generation without external model calls.
 - Dockerfile and Docker Compose.
 
 Key routes:

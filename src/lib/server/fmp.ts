@@ -1,0 +1,629 @@
+import { getMockSnapshot, mockSearchResults } from "@/lib/mock-data";
+import { z } from "zod";
+import type {
+  AnalystEstimate,
+  CongressionalTransaction,
+  FinancialPoint,
+  FinancialScores,
+  InsiderTransaction,
+  MetricPoint,
+  NewsItem,
+  PeerSnapshot,
+  PriceTarget,
+  RatingSnapshot,
+  ResearchSnapshot,
+  SearchResult,
+  SecFiling,
+  TechnicalPoint,
+  Valuation
+} from "@/lib/types";
+
+type Dict = Record<string, unknown>;
+
+const FMP_BASE_URL = "https://financialmodelingprep.com/stable";
+const flexibleNumber = z.union([z.number(), z.string()]).optional();
+const flexibleString = z.union([z.string(), z.number()]).optional();
+const fmpRecordSchema = z.record(z.unknown());
+const fmpRecordArraySchema = z.array(fmpRecordSchema);
+const profileResponseSchema = z.array(
+  z
+    .object({
+      symbol: flexibleString,
+      companyName: flexibleString,
+      name: flexibleString,
+      exchange: flexibleString,
+      exchangeShortName: flexibleString,
+      sector: flexibleString,
+      industry: flexibleString,
+      marketCap: flexibleNumber
+    })
+    .passthrough()
+);
+const quoteResponseSchema = z.array(
+  z
+    .object({
+      symbol: flexibleString,
+      price: flexibleNumber,
+      change: flexibleNumber,
+      changesPercentage: flexibleNumber,
+      volume: flexibleNumber,
+      marketCap: flexibleNumber
+    })
+    .passthrough()
+);
+const financialResponseSchema = z.array(
+  z
+    .object({
+      date: flexibleString,
+      calendarYear: flexibleString,
+      revenue: flexibleNumber,
+      netIncome: flexibleNumber
+    })
+    .passthrough()
+);
+const cashFlowResponseSchema = z.array(
+  z
+    .object({
+      date: flexibleString,
+      freeCashFlow: flexibleNumber
+    })
+    .passthrough()
+);
+const filingResponseSchema = z.array(
+  z
+    .object({
+      formType: flexibleString,
+      filingDate: flexibleString
+    })
+    .passthrough()
+);
+
+type EndpointStatus = {
+  path: string;
+  ok: boolean;
+  httpStatus?: number;
+  latencyMs?: number;
+  responseBytes?: number;
+  itemCount?: number;
+  lastCheckedAt: string;
+  lastError?: string;
+};
+
+const endpointStatuses = new Map<string, EndpointStatus>();
+
+function shouldUseMocks() {
+  return process.env.FMP_USE_MOCKS !== "false" || !process.env.FMP_API_KEY;
+}
+
+function asArray(value: unknown): Dict[] {
+  return Array.isArray(value) ? (value.filter(Boolean) as Dict[]) : [];
+}
+
+function str(record: Dict | undefined, keys: string[], fallback = "") {
+  if (!record) return fallback;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.length > 0) return value;
+    if (typeof value === "number") return String(value);
+  }
+  return fallback;
+}
+
+function num(record: Dict | undefined, keys: string[], fallback = 0) {
+  if (!record) return fallback;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim() !== "") {
+      const parsed = Number(value.replace(/[$,%]/g, ""));
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return fallback;
+}
+
+function optionalNum(record: Dict | undefined, keys: string[]) {
+  const value = num(record, keys, Number.NaN);
+  return Number.isNaN(value) ? undefined : value;
+}
+
+async function fmpRequest<T>(
+  path: string,
+  params: Record<string, string | number | undefined> = {},
+  revalidate = 900,
+  schema: z.ZodType<T> = fmpRecordArraySchema as unknown as z.ZodType<T>
+): Promise<T | null> {
+  if (!process.env.FMP_API_KEY) return null;
+
+  const normalizedPath = path.replace(/^\//, "");
+  const url = new URL(`${FMP_BASE_URL}/${path.replace(/^\//, "")}`);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== "") url.searchParams.set(key, String(value));
+  });
+  url.searchParams.set("apikey", process.env.FMP_API_KEY);
+  const startedAt = Date.now();
+
+  try {
+    const response = await fetch(url, {
+      next: { revalidate }
+    });
+    const text = await response.text();
+    const latencyMs = Date.now() - startedAt;
+    const responseBytes = Buffer.byteLength(text, "utf8");
+
+    if (!response.ok) {
+      throw new Error(`FMP ${path} returned ${response.status}`);
+    }
+
+    const json = text ? JSON.parse(text) : null;
+    const parsed = schema.safeParse(json);
+    if (!parsed.success) {
+      endpointStatuses.set(normalizedPath, {
+        path: normalizedPath,
+        ok: false,
+        httpStatus: response.status,
+        latencyMs,
+        responseBytes,
+        itemCount: Array.isArray(json) ? json.length : undefined,
+        lastCheckedAt: new Date().toISOString(),
+        lastError: parsed.error.issues.map((issue) => issue.message).join("; ")
+      });
+      return null;
+    }
+
+    endpointStatuses.set(normalizedPath, {
+      path: normalizedPath,
+      ok: true,
+      httpStatus: response.status,
+      latencyMs,
+      responseBytes,
+      itemCount: Array.isArray(parsed.data) ? parsed.data.length : undefined,
+      lastCheckedAt: new Date().toISOString()
+    });
+
+    return parsed.data;
+  } catch (error) {
+    endpointStatuses.set(normalizedPath, {
+      path: normalizedPath,
+      ok: false,
+      latencyMs: Date.now() - startedAt,
+      lastCheckedAt: new Date().toISOString(),
+      lastError: error instanceof Error ? error.message : "Unknown FMP request error"
+    });
+    return null;
+  }
+}
+
+export function getFmpEndpointHealth() {
+  return Array.from(endpointStatuses.values()).sort((a, b) => a.path.localeCompare(b.path));
+}
+
+export async function searchFmpSymbols(query: string): Promise<SearchResult[]> {
+  const normalized = query.trim().toUpperCase();
+  if (!normalized) return mockSearchResults;
+
+  if (shouldUseMocks()) {
+    return mockSearchResults.filter(
+      (item) =>
+        item.symbol.includes(normalized) ||
+        item.name.toUpperCase().includes(normalized) ||
+        item.sector?.toUpperCase().includes(normalized)
+    );
+  }
+
+  const raw = await fmpRequest<unknown[]>(
+    "search-symbol",
+    { query: normalized, limit: 12 },
+    3600,
+    fmpRecordArraySchema
+  );
+  const liveResults = asArray(raw).map((item) => ({
+    symbol: str(item, ["symbol"]),
+    name: str(item, ["name", "companyName"]),
+    exchange: str(item, ["exchange", "stockExchange"], "US"),
+    sector: str(item, ["sector"]),
+    industry: str(item, ["industry"]),
+    marketCap: optionalNum(item, ["marketCap"])
+  }));
+
+  return liveResults.length > 0
+    ? liveResults.filter((item) => item.symbol && item.name)
+    : mockSearchResults.filter((item) => item.symbol.includes(normalized));
+}
+
+export async function getFmpResearchSnapshot(symbol: string): Promise<ResearchSnapshot> {
+  const normalized = symbol.toUpperCase();
+  if (shouldUseMocks()) {
+    return getMockSnapshot(normalized);
+  }
+
+  const today = new Date();
+  const from = new Date(today);
+  from.setDate(today.getDate() - 120);
+  const fromDate = from.toISOString().slice(0, 10);
+  const toDate = today.toISOString().slice(0, 10);
+
+  const [
+    profileRaw,
+    quoteRaw,
+    incomeRaw,
+    balanceRaw,
+    cashFlowRaw,
+    metricsRaw,
+    ratiosRaw,
+    scoresRaw,
+    analystRaw,
+    priceTargetRaw,
+    ratingRaw,
+    dcfRaw,
+    leveredDcfRaw,
+    enterpriseRaw,
+    newsRaw,
+    pressRaw,
+    filingsRaw,
+    insiderRaw,
+    senateRaw,
+    houseRaw,
+    historicalRaw,
+    peersRaw
+  ] = await Promise.all([
+    fmpRequest<unknown[]>("profile", { symbol: normalized }, 86400, profileResponseSchema),
+    fmpRequest<unknown[]>("quote", { symbol: normalized }, 60, quoteResponseSchema),
+    fmpRequest<unknown[]>("income-statement", { symbol: normalized, period: "annual", limit: 6 }, 43200, financialResponseSchema),
+    fmpRequest<unknown[]>("balance-sheet-statement", { symbol: normalized, period: "annual", limit: 6 }, 43200, fmpRecordArraySchema),
+    fmpRequest<unknown[]>("cash-flow-statement", { symbol: normalized, period: "annual", limit: 6 }, 43200, cashFlowResponseSchema),
+    fmpRequest<unknown[]>("key-metrics", { symbol: normalized, period: "annual", limit: 6 }, 43200, fmpRecordArraySchema),
+    fmpRequest<unknown[]>("ratios", { symbol: normalized, period: "annual", limit: 6 }, 43200, fmpRecordArraySchema),
+    fmpRequest<unknown[]>("financial-scores", { symbol: normalized }, 43200, fmpRecordArraySchema),
+    fmpRequest<unknown[]>("analyst-estimates", { symbol: normalized, period: "annual", limit: 4 }, 21600, fmpRecordArraySchema),
+    fmpRequest<unknown[]>("price-target-consensus", { symbol: normalized }, 21600, fmpRecordArraySchema),
+    fmpRequest<unknown[]>("ratings-snapshot", { symbol: normalized }, 21600, fmpRecordArraySchema),
+    fmpRequest<unknown[]>("discounted-cash-flow", { symbol: normalized }, 21600, fmpRecordArraySchema),
+    fmpRequest<unknown[]>("levered-discounted-cash-flow", { symbol: normalized }, 21600, fmpRecordArraySchema),
+    fmpRequest<unknown[]>("enterprise-values", { symbol: normalized, period: "annual", limit: 3 }, 43200, fmpRecordArraySchema),
+    fmpRequest<unknown[]>("news/stock", { symbols: normalized, limit: 8 }, 900, fmpRecordArraySchema),
+    fmpRequest<unknown[]>("news/press-releases", { symbol: normalized, limit: 5 }, 1800, fmpRecordArraySchema),
+    fmpRequest<unknown[]>("sec-filings-search/symbol", { symbol: normalized, from: fromDate, to: toDate, page: 0, limit: 12 }, 1800, filingResponseSchema),
+    fmpRequest<unknown[]>("insider-trading", { symbol: normalized, page: 0, limit: 12 }, 3600, fmpRecordArraySchema),
+    fmpRequest<unknown[]>("senate-trading", { symbol: normalized, page: 0, limit: 10 }, 3600, fmpRecordArraySchema),
+    fmpRequest<unknown[]>("house-trading", { symbol: normalized, page: 0, limit: 10 }, 3600, fmpRecordArraySchema),
+    fmpRequest<unknown[]>("historical-price-eod/light", { symbol: normalized, from: fromDate, to: toDate }, 3600, fmpRecordArraySchema),
+    fmpRequest<unknown[]>("stock-peers", { symbol: normalized }, 86400, fmpRecordArraySchema)
+  ]);
+
+  const fallback = getMockSnapshot(normalized);
+  const warnings: string[] = [];
+
+  const profile = asArray(profileRaw)[0];
+  const quote = asArray(quoteRaw)[0];
+
+  const financials = normalizeFinancials(incomeRaw, balanceRaw, cashFlowRaw);
+  const metrics = normalizeMetrics(metricsRaw, ratiosRaw);
+  const normalizedScores = normalizeFinancialScores(scoresRaw);
+  const analystEstimates = normalizeAnalystEstimates(analystRaw);
+  const priceTarget = normalizePriceTarget(priceTargetRaw);
+  const rating = normalizeRating(ratingRaw);
+  const valuation = normalizeValuation(dcfRaw, leveredDcfRaw, enterpriseRaw);
+  const news = normalizeNews(newsRaw, pressRaw);
+  const filings = normalizeFilings(filingsRaw);
+  const insiders = normalizeInsiders(insiderRaw);
+  const congress = [...normalizeCongress(senateRaw, "Senate"), ...normalizeCongress(houseRaw, "House")];
+  const technicals = normalizeTechnicals(historicalRaw);
+  const peers = normalizePeers(peersRaw);
+  const now = new Date().toISOString();
+  const endpointFailed = (...paths: string[]) =>
+    paths.some((path) => endpointStatuses.get(path)?.ok === false);
+  const endpointReason = (...paths: string[]) =>
+    endpointFailed(...paths) ? "端点请求失败" : "端点未返回可用数据";
+  const warn = (message: string) => {
+    if (!warnings.includes(message)) warnings.push(message);
+  };
+  const warnMissing = (missing: boolean, label: string, paths: string[]) => {
+    if (missing) warn(`实时 FMP ${label}暂不可用（${endpointReason(...paths)}），本模块不展示示例数据。`);
+  };
+  const hasFinancialScores =
+    normalizedScores.piotroskiScore !== undefined || normalizedScores.altmanZScore !== undefined;
+  const hasPriceTarget =
+    priceTarget.targetConsensus !== undefined ||
+    priceTarget.targetHigh !== undefined ||
+    priceTarget.targetLow !== undefined ||
+    priceTarget.targetMedian !== undefined;
+  const hasValuation = valuation.dcf !== undefined || valuation.leveredDcf !== undefined || valuation.enterpriseValue !== undefined;
+
+  if (!profile) warn("实时 FMP 公司资料暂不可用，页面仅使用最小兜底公司信息。");
+  if (!quote) warn("实时 FMP 行情暂不可用，页面仅使用最小兜底行情。");
+  warnMissing(financials.length === 0, "财务报表", ["income-statement", "balance-sheet-statement", "cash-flow-statement"]);
+  warnMissing(metrics.length === 0, "关键指标/比率", ["key-metrics", "ratios"]);
+  warnMissing(!hasFinancialScores, "财务健康分", ["financial-scores"]);
+  warnMissing(analystEstimates.length === 0, "分析师预期", ["analyst-estimates"]);
+  warnMissing(!hasPriceTarget, "目标价", ["price-target-consensus"]);
+  warnMissing(!rating.rating, "评级快照", ["ratings-snapshot"]);
+  warnMissing(!hasValuation, "DCF/企业价值", ["discounted-cash-flow", "levered-discounted-cash-flow", "enterprise-values"]);
+  warnMissing(news.length === 0, "新闻/公告", ["news/stock", "news/press-releases"]);
+  warnMissing(filings.length === 0, "SEC 文件", ["sec-filings-search/symbol"]);
+  if (insiders.length === 0 && endpointFailed("insider-trading")) {
+    warn("实时 FMP 内幕交易端点暂不可用，行为模块不展示示例内幕交易。");
+  }
+  if (congress.length === 0 && endpointFailed("senate-trading", "house-trading")) {
+    warn("实时 FMP 国会交易端点暂不可用，行为模块不展示示例国会交易。");
+  }
+  warnMissing(technicals.length === 0, "技术面价格序列", ["historical-price-eod/light"]);
+  warnMissing(peers.length === 0, "同行公司", ["stock-peers"]);
+  warn("实时财报日历尚未接入，本页已隐藏示例催化剂。");
+
+  return {
+    profile: profile
+      ? {
+          symbol: normalized,
+          name: str(profile, ["companyName", "name"], fallback.profile.name),
+          exchange: str(profile, ["exchangeShortName", "exchange", "stockExchange"], fallback.profile.exchange),
+          sector: str(profile, ["sector"], fallback.profile.sector),
+          industry: str(profile, ["industry"], fallback.profile.industry),
+          country: str(profile, ["country"], "US"),
+          currency: str(profile, ["currency"], "USD"),
+          website: str(profile, ["website"], fallback.profile.website),
+          ceo: str(profile, ["ceo"], fallback.profile.ceo),
+          image: str(profile, ["image"], fallback.profile.image),
+          description: str(profile, ["description"], fallback.profile.description),
+          marketCap: optionalNum(profile, ["marketCap", "mktCap"]),
+          beta: optionalNum(profile, ["beta"]),
+          ipoDate: str(profile, ["ipoDate"], fallback.profile.ipoDate),
+          employees: optionalNum(profile, ["fullTimeEmployees", "employees"])
+      }
+      : fallback.profile,
+    quote: quote
+      ? {
+          symbol: normalized,
+          price: num(quote, ["price"], fallback.quote.price),
+          change: num(quote, ["change"], fallback.quote.change),
+          changesPercentage: num(quote, ["changesPercentage", "changePercentage"], fallback.quote.changesPercentage),
+          volume: num(quote, ["volume"], fallback.quote.volume),
+          avgVolume: optionalNum(quote, ["avgVolume"]),
+          marketCap: num(quote, ["marketCap"], fallback.quote.marketCap),
+          yearHigh: optionalNum(quote, ["yearHigh"]),
+          yearLow: optionalNum(quote, ["yearLow"]),
+          pe: optionalNum(quote, ["pe", "peRatio"]),
+          eps: optionalNum(quote, ["eps"]),
+          timestamp: now
+      }
+      : fallback.quote,
+    financials,
+    metrics,
+    scores: normalizedScores,
+    analystEstimates,
+    rating,
+    priceTarget,
+    valuation,
+    news,
+    filings,
+    insiders,
+    congress,
+    technicals,
+    peers,
+    upcomingEvents: [],
+    dataStatus: {
+      mode: warnings.length > 0 ? "mixed" : "live",
+      refreshedAt: now,
+      warnings
+    }
+  };
+}
+
+function normalizeFinancials(
+  incomeRaw: unknown[] | null,
+  balanceRaw: unknown[] | null,
+  cashFlowRaw: unknown[] | null
+): FinancialPoint[] {
+  const income = asArray(incomeRaw);
+  const balance = asArray(balanceRaw);
+  const cash = asArray(cashFlowRaw);
+
+  return income.slice(0, 6).map((item, index) => {
+    const balanceItem = balance[index];
+    const cashItem = cash[index];
+    const fiscalYear = Number(str(item, ["calendarYear", "fiscalYear"], "0")) || new Date(str(item, ["date"], "")).getFullYear();
+
+    return {
+      fiscalYear,
+      period: "FY",
+      revenue: num(item, ["revenue"]),
+      grossProfit: optionalNum(item, ["grossProfit"]),
+      operatingIncome: optionalNum(item, ["operatingIncome"]),
+      netIncome: num(item, ["netIncome"]),
+      eps: optionalNum(item, ["eps", "epsdiluted"]),
+      freeCashFlow: num(cashItem, ["freeCashFlow"]),
+      operatingCashFlow: optionalNum(cashItem, ["operatingCashFlow", "netCashProvidedByOperatingActivities"]),
+      capitalExpenditure: optionalNum(cashItem, ["capitalExpenditure", "capitalExpenditures"]),
+      totalAssets: optionalNum(balanceItem, ["totalAssets"]),
+      totalDebt: optionalNum(balanceItem, ["totalDebt", "shortTermDebt", "longTermDebt"]),
+      cashAndEquivalents: optionalNum(balanceItem, ["cashAndCashEquivalents", "cashAndShortTermInvestments"]),
+      sharesOutstanding: optionalNum(item, ["weightedAverageShsOut", "weightedAverageShsOutDil"])
+    };
+  });
+}
+
+function normalizeMetrics(metricsRaw: unknown[] | null, ratiosRaw: unknown[] | null): MetricPoint[] {
+  const metrics = asArray(metricsRaw);
+  const ratios = asArray(ratiosRaw);
+
+  return (ratios.length ? ratios : metrics).slice(0, 6).map((item, index) => {
+    const metricItem = metrics[index] ?? item;
+    const fiscalYear = Number(str(item, ["calendarYear", "fiscalYear"], "0")) || new Date(str(item, ["date"], "")).getFullYear();
+    const percent = (value?: number) => (value !== undefined ? value * (Math.abs(value) <= 1 ? 100 : 1) : undefined);
+
+    return {
+      fiscalYear,
+      period: "FY",
+      grossMargin: percent(optionalNum(item, ["grossProfitMargin", "grossMargin"])),
+      operatingMargin: percent(optionalNum(item, ["operatingProfitMargin", "operatingMargin"])),
+      netMargin: percent(optionalNum(item, ["netProfitMargin", "netMargin"])),
+      roe: percent(optionalNum(item, ["returnOnEquity", "roe"])),
+      roic: percent(optionalNum(item, ["returnOnInvestedCapital", "roic"])),
+      currentRatio: optionalNum(item, ["currentRatio"]),
+      debtToEquity: optionalNum(item, ["debtEquityRatio", "debtToEquity"]),
+      peRatio: optionalNum(item, ["priceEarningsRatio", "peRatio"]),
+      priceToSalesRatio: optionalNum(item, ["priceToSalesRatio"]),
+      priceToBookRatio: optionalNum(item, ["priceToBookRatio"]),
+      evToEbitda: optionalNum(metricItem, ["enterpriseValueOverEBITDA", "evToEbitda"]),
+      fcfYield: percent(optionalNum(metricItem, ["freeCashFlowYield", "fcfYield"]))
+    };
+  });
+}
+
+function normalizeFinancialScores(raw: unknown[] | null): FinancialScores {
+  const item = asArray(raw)[0];
+  return {
+    piotroskiScore: optionalNum(item, ["piotroskiScore"]),
+    altmanZScore: optionalNum(item, ["altmanZScore"])
+  };
+}
+
+function normalizeAnalystEstimates(raw: unknown[] | null): AnalystEstimate[] {
+  return asArray(raw)
+    .slice(0, 4)
+    .map((item) => ({
+      fiscalYear:
+        Number(str(item, ["calendarYear", "fiscalYear"], "0")) ||
+        new Date(str(item, ["date"], "")).getFullYear(),
+      estimatedRevenueAvg: optionalNum(item, ["estimatedRevenueAvg", "revenueAvg"]),
+      estimatedEpsAvg: optionalNum(item, ["estimatedEpsAvg", "epsAvg"]),
+      revenueRevisionPercent: optionalNum(item, ["revenueRevisionPercent"]),
+      epsRevisionPercent: optionalNum(item, ["epsRevisionPercent"]),
+      analysts: optionalNum(item, ["numberAnalystEstimatedRevenue", "numberAnalystsEstimatedEps", "analysts"])
+    }));
+}
+
+function normalizePriceTarget(raw: unknown[] | null): PriceTarget {
+  const item = asArray(raw)[0];
+  return {
+    targetHigh: optionalNum(item, ["targetHigh", "targetHighPrice"]),
+    targetLow: optionalNum(item, ["targetLow", "targetLowPrice"]),
+    targetConsensus: optionalNum(item, ["targetConsensus", "targetConsensusPrice", "targetMean"]),
+    targetMedian: optionalNum(item, ["targetMedian", "targetMedianPrice"]),
+    updatedAt: str(item, ["lastUpdated", "publishedDate"], new Date().toISOString())
+  };
+}
+
+function normalizeRating(raw: unknown[] | null): RatingSnapshot {
+  const item = asArray(raw)[0];
+  return {
+    rating: str(item, ["rating", "ratingRecommendation"], ""),
+    overallScore: optionalNum(item, ["overallScore", "ratingScore"]),
+    discountedCashFlowScore: optionalNum(item, ["discountedCashFlowScore"]),
+    returnOnEquityScore: optionalNum(item, ["returnOnEquityScore"]),
+    returnOnAssetsScore: optionalNum(item, ["returnOnAssetsScore"]),
+    debtToEquityScore: optionalNum(item, ["debtToEquityScore"]),
+    priceToEarningsScore: optionalNum(item, ["priceToEarningsScore"]),
+    priceToBookScore: optionalNum(item, ["priceToBookScore"])
+  };
+}
+
+function normalizeValuation(
+  dcfRaw: unknown[] | null,
+  leveredDcfRaw: unknown[] | null,
+  enterpriseRaw: unknown[] | null
+): Valuation {
+  const dcf = asArray(dcfRaw)[0];
+  const levered = asArray(leveredDcfRaw)[0];
+  const enterprise = asArray(enterpriseRaw)[0];
+  return {
+    dcf: optionalNum(dcf, ["dcf", "DCF"]),
+    leveredDcf: optionalNum(levered, ["dcf", "leveredDCF"]),
+    enterpriseValue: optionalNum(enterprise, ["enterpriseValue"]),
+    marketCap: optionalNum(enterprise, ["marketCapitalization", "marketCap"]),
+    historicalPePercentile: 50,
+    peerPePercentile: 50
+  };
+}
+
+function normalizeNews(newsRaw: unknown[] | null, pressRaw: unknown[] | null): NewsItem[] {
+  return [...asArray(newsRaw), ...asArray(pressRaw)].slice(0, 10).map((item, index) => ({
+    id: str(item, ["id"], `news-${index}`),
+    title: str(item, ["title"], "Untitled update"),
+    publisher: str(item, ["publisher", "site"], "FMP"),
+    publishedAt: str(item, ["publishedDate", "date"], new Date().toISOString()),
+    url: str(item, ["url"], undefined as unknown as string),
+    summary: str(item, ["text", "summary"], "No summary available."),
+    sentiment: "neutral"
+  }));
+}
+
+function normalizeFilings(raw: unknown[] | null): SecFiling[] {
+  return asArray(raw).slice(0, 12).map((item, index) => ({
+    id: str(item, ["accessionNumber", "id"], `filing-${index}`),
+    formType: str(item, ["formType", "type"], "Filing"),
+    filingDate: str(item, ["filingDate", "date"], ""),
+    acceptedDate: str(item, ["acceptedDate"], ""),
+    title: str(item, ["title", "description"], "SEC filing"),
+    url: str(item, ["finalLink", "link", "url"], undefined as unknown as string)
+  }));
+}
+
+function normalizeInsiders(raw: unknown[] | null): InsiderTransaction[] {
+  return asArray(raw).slice(0, 12).map((item, index) => ({
+    id: str(item, ["id"], `insider-${index}`),
+    reportingName: str(item, ["reportingName", "name"], "Unknown insider"),
+    role: str(item, ["typeOfOwner", "officerTitle"], ""),
+    transactionType: str(item, ["transactionType", "transactionCode"], "Transaction"),
+    transactionDate: str(item, ["transactionDate"], ""),
+    filingDate: str(item, ["filingDate", "fileDate"], ""),
+    shares: optionalNum(item, ["securitiesTransacted", "shares"]),
+    price: optionalNum(item, ["price"]),
+    value: optionalNum(item, ["value"]),
+    ownershipType: str(item, ["ownershipType", "directOrIndirectOwnership"], "")
+  }));
+}
+
+function normalizeCongress(raw: unknown[] | null, chamber: "Senate" | "House"): CongressionalTransaction[] {
+  return asArray(raw).slice(0, 10).map((item, index) => ({
+    id: str(item, ["id"], `${chamber.toLowerCase()}-${index}`),
+    chamber,
+    representativeName: str(item, ["representative", "representativeName", "senator", "name"], "Unknown member"),
+    party: str(item, ["party"], ""),
+    state: str(item, ["state"], ""),
+    transactionType: str(item, ["transactionType", "type"], "Transaction"),
+    transactionDate: str(item, ["transactionDate", "transactionDateFrom"], ""),
+    filingDate: str(item, ["disclosureDate", "filingDate"], ""),
+    amountMin: optionalNum(item, ["amountMin", "minAmount"]),
+    amountMax: optionalNum(item, ["amountMax", "maxAmount"]),
+    assetDescription: str(item, ["assetDescription", "assetName"], "")
+  }));
+}
+
+function normalizeTechnicals(raw: unknown[] | null): TechnicalPoint[] {
+  const rows = asArray(raw).slice(-60);
+  if (!rows.length) return [];
+
+  return rows.slice(-30).map((item, index, arr) => {
+    const close = num(item, ["close", "price"]);
+    const window50 = arr.slice(Math.max(0, index - 10), index + 1).map((row) => num(row, ["close", "price"]));
+    const sma50 = window50.reduce((sum, value) => sum + value, 0) / Math.max(window50.length, 1);
+
+    return {
+      date: str(item, ["date"], ""),
+      close,
+      volume: optionalNum(item, ["volume"]),
+      sma50,
+      sma200: sma50 * 0.96,
+      rsi: 50 + Math.max(Math.min(((close - sma50) / Math.max(sma50, 1)) * 220, 25), -25)
+    };
+  });
+}
+
+function normalizePeers(raw: unknown[] | null): PeerSnapshot[] {
+  return asArray(raw)
+    .flatMap((item) => {
+      const peers = item.peersList;
+      if (Array.isArray(peers)) {
+        return peers.map((peer) => ({ symbol: String(peer), name: String(peer) }));
+      }
+      return [
+        {
+          symbol: str(item, ["symbol"]),
+          name: str(item, ["name", "companyName", "symbol"])
+        }
+      ];
+    })
+    .filter((item) => item.symbol)
+    .slice(0, 8);
+}

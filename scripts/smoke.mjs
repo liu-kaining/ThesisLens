@@ -14,7 +14,7 @@ const checks = [
   {
     name: "company page",
     path: "/stocks/AAPL",
-    expect: ["Apple Inc.", "Today Conclusion", "AI Investment Memo", "Evidence Ledger"]
+    expect: ["Apple Inc.", "今日结论", "规则研究备忘录", "证据账本"]
   },
   {
     name: "company snapshot api",
@@ -54,7 +54,7 @@ const checks = [
   {
     name: "screens api",
     path: "/api/screens",
-    expect: ["\"screens\"", "High Quality Companies"]
+    expect: ["\"screens\"", "高质量公司"]
   },
   {
     name: "market api",
@@ -69,7 +69,7 @@ const checks = [
   {
     name: "portfolio page",
     path: "/portfolio",
-    expect: ["Portfolio", "Understand exposure", "Add Holding"]
+    expect: ["组合", "用 thesis 质量", "添加持仓"]
   },
   {
     name: "portfolio api",
@@ -79,7 +79,7 @@ const checks = [
   {
     name: "theses page",
     path: "/theses",
-    expect: ["Thesis Tracker", "Track what must remain true", "Save Thesis"]
+    expect: ["Thesis 跟踪", "跟踪必须继续成立", "保存 Thesis"]
   },
   {
     name: "theses api",
@@ -89,7 +89,7 @@ const checks = [
   {
     name: "alerts page",
     path: "/alerts",
-    expect: ["Alerts", "Create Alert Rule", "Evaluated Alerts"]
+    expect: ["提醒", "创建提醒规则", "已评估提醒"]
   },
   {
     name: "alerts api",

@@ -5,8 +5,7 @@ import { getDatabaseHealth } from "@/lib/server/db";
 export default async function SettingsPage() {
   const [database, cache] = await Promise.all([getDatabaseHealth(), getCacheStats()]);
   const hasFmpKey = Boolean(process.env.FMP_API_KEY);
-  const hasOpenAiKey = Boolean(process.env.OPENAI_API_KEY);
-  const fmpMode = process.env.FMP_USE_MOCKS !== "false" || !hasFmpKey ? "mock/fallback" : "live";
+  const fmpMode = process.env.FMP_USE_MOCKS !== "false" || !hasFmpKey ? "示例/兜底" : "实时 FMP";
 
   return (
     <main className="min-h-screen bg-canvas">
@@ -15,22 +14,16 @@ export default async function SettingsPage() {
         <section>
           <p className="text-sm font-semibold text-steel">Settings</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-normal text-ink">
-            Data mode, model mode, and deployment readiness.
+            数据模式、存储状态和上线准备度。
           </h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-muted">
-            This page makes uncertainty visible: whether ThesisLens is using demo data,
-            live FMP data, deterministic memo generation, OpenAI generation, Postgres, or
-            memory fallback.
+            这个页面把不确定性摊开：当前是否使用实时 FMP、Postgres、Redis，
+            以及是否落到了示例/内存兜底。
           </p>
         </section>
 
         <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <StatusCard label="FMP mode" value={fmpMode} detail={hasFmpKey ? "API key present" : "No API key configured"} />
-          <StatusCard
-            label="AI mode"
-            value={process.env.AI_USE_OPENAI === "true" && hasOpenAiKey ? "OpenAI" : "deterministic"}
-            detail={hasOpenAiKey ? "OpenAI key present" : "No OpenAI key configured"}
-          />
           <StatusCard
             label="Database"
             value={database.connected ? "Postgres" : "memory fallback"}

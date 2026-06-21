@@ -2,15 +2,15 @@ import Link from "next/link";
 import { SearchBox } from "@/components/search-box";
 
 const navItems = [
-  { href: "/", label: "Dashboard" },
-  { href: "/watchlist", label: "Watchlist" },
-  { href: "/screens", label: "Screens" },
-  { href: "/portfolio", label: "Portfolio" },
-  { href: "/theses", label: "Theses" },
-  { href: "/alerts", label: "Alerts" },
-  { href: "/market", label: "Market" },
-  { href: "/calendar", label: "Calendar" },
-  { href: "/settings", label: "Settings" }
+  { href: "/", label: "总览" },
+  { href: "/watchlist", label: "观察列表" },
+  { href: "/screens", label: "选股器" },
+  { href: "/portfolio", label: "组合" },
+  { href: "/theses", label: "Thesis" },
+  { href: "/alerts", label: "提醒" },
+  { href: "/market", label: "市场" },
+  { href: "/calendar", label: "日历" },
+  { href: "/settings", label: "设置" }
 ];
 
 export function AppNav({ showSearch = false }: { showSearch?: boolean }) {
@@ -23,7 +23,7 @@ export function AppNav({ showSearch = false }: { showSearch?: boolean }) {
           </span>
           <span>
             <span className="block text-sm font-semibold text-ink">ThesisLens</span>
-            <span className="hidden text-xs text-muted sm:block">Evidence-backed equity research</span>
+            <span className="hidden text-xs text-muted sm:block">证据驱动的美股研究台</span>
           </span>
         </Link>
         <nav className="flex flex-wrap items-center gap-4 text-sm font-medium text-muted">

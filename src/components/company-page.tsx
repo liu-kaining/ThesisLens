@@ -26,11 +26,11 @@ import {
   formatRatio
 } from "@/lib/format";
 import type {
-  AiMemo,
   CompanyScore,
   Direction,
   EnrichedResearch,
   Evidence,
+  ResearchMemo,
   Signal
 } from "@/lib/types";
 
@@ -270,7 +270,7 @@ export function CompanyPage({ research }: CompanyPageProps) {
         </section>
 
         <section className="grid gap-6 lg:grid-cols-[1fr_0.85fr]">
-          <Panel icon={<BookOpenText className="h-4 w-4" />} title="AI Investment Memo">
+          <Panel icon={<BookOpenText className="h-4 w-4" />} title="规则研究备忘录">
             <Memo memo={memo} evidence={evidence} />
           </Panel>
 
@@ -440,7 +440,7 @@ function MiniEvent({
   );
 }
 
-function Memo({ memo, evidence }: { memo: AiMemo; evidence: Evidence[] }) {
+function Memo({ memo, evidence }: { memo: ResearchMemo; evidence: Evidence[] }) {
   const sections = [
     ["What changed", memo.whatChanged],
     ["Business quality", memo.businessQuality],
@@ -457,7 +457,7 @@ function Memo({ memo, evidence }: { memo: AiMemo; evidence: Evidence[] }) {
       <div className="rounded-md border border-line bg-canvas p-4">
         <div className="mb-2 flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted">
           <Sparkles className="h-4 w-4" />
-          <span>{memo.model} memo · {dateShort(memo.generatedAt)}</span>
+          <span>规则生成 · {dateShort(memo.generatedAt)}</span>
           <span className="rounded border border-line px-2 py-1 normal-case tracking-normal">
             Research only, not investment advice
           </span>
