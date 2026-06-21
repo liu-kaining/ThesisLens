@@ -128,6 +128,10 @@ function optionalNum(record: Dict | undefined, keys: string[]) {
   return Number.isNaN(value) ? undefined : value;
 }
 
+function percentValue(value?: number) {
+  return value !== undefined ? value * (Math.abs(value) <= 1 ? 100 : 1) : undefined;
+}
+
 function dateTime(record: Dict | undefined, keys: string[]) {
   const value = str(record, keys, "");
   const time = new Date(value).getTime();
@@ -259,6 +263,9 @@ export async function getFmpResearchSnapshot(symbol: string): Promise<ResearchSn
   const toDate = today.toISOString().slice(0, 10);
   const future = new Date(today);
   future.setDate(today.getDate() + 180);
+  const peerFrom = new Date(today);
+  peerFrom.setDate(today.getDate() - 370);
+  const peerFromDate = peerFrom.toISOString().slice(0, 10);
 
   const [
     profileRaw,
@@ -329,7 +336,7 @@ export async function getFmpResearchSnapshot(symbol: string): Promise<ResearchSn
   const congress = [...normalizeCongress(senateRaw, "Senate"), ...normalizeCongress(houseRaw, "House")];
   const upcomingEvents = normalizeUpcomingEvents(earningsRaw, toDate, future.toISOString().slice(0, 10));
   const technicals = normalizeTechnicals(historicalRaw);
-  const peers = normalizePeers(peersRaw);
+  const peers = await enrichPeers(normalizePeers(peersRaw), peerFromDate, toDate);
   const now = new Date().toISOString();
   const endpointFailed = (...paths: string[]) =>
     paths.some((path) => endpointStatuses.get(path)?.ok === false);
@@ -402,7 +409,9 @@ export async function getFmpResearchSnapshot(symbol: string): Promise<ResearchSn
       key: "peers",
       label: "同行公司",
       status: peers.length > 0 ? "live" : "unavailable",
-      detail: `同行列表 ${peers.length} 个标的。`
+      detail: `同行列表 ${peers.length} 个标的，已补充 ${
+        peers.filter((peer) => peer.peRatio !== undefined || peer.operatingMargin !== undefined || peer.priceChange1Y !== undefined).length
+      } 个标的的估值、利润率或 1Y 数据。`
     },
     {
       key: "calendar",
@@ -535,23 +544,22 @@ function normalizeMetrics(metricsRaw: unknown[] | null, ratiosRaw: unknown[] | n
   return (ratios.length ? ratios : metrics).slice(0, 6).map((item, index) => {
     const metricItem = metrics[index] ?? item;
     const fiscalYear = Number(str(item, ["calendarYear", "fiscalYear"], "0")) || new Date(str(item, ["date"], "")).getFullYear();
-    const percent = (value?: number) => (value !== undefined ? value * (Math.abs(value) <= 1 ? 100 : 1) : undefined);
 
     return {
       fiscalYear,
       period: "FY",
-      grossMargin: percent(optionalNum(item, ["grossProfitMargin", "grossMargin"])),
-      operatingMargin: percent(optionalNum(item, ["operatingProfitMargin", "operatingMargin"])),
-      netMargin: percent(optionalNum(item, ["netProfitMargin", "netMargin"])),
-      roe: percent(optionalNum(item, ["returnOnEquity", "roe"])),
-      roic: percent(optionalNum(item, ["returnOnInvestedCapital", "roic"])),
+      grossMargin: percentValue(optionalNum(item, ["grossProfitMargin", "grossMargin"])),
+      operatingMargin: percentValue(optionalNum(item, ["operatingProfitMargin", "operatingMargin"])),
+      netMargin: percentValue(optionalNum(item, ["netProfitMargin", "netMargin"])),
+      roe: percentValue(optionalNum(item, ["returnOnEquity", "roe"])),
+      roic: percentValue(optionalNum(item, ["returnOnInvestedCapital", "roic"])),
       currentRatio: optionalNum(item, ["currentRatio"]),
       debtToEquity: optionalNum(item, ["debtEquityRatio", "debtToEquity"]),
       peRatio: optionalNum(item, ["priceEarningsRatio", "peRatio"]),
       priceToSalesRatio: optionalNum(item, ["priceToSalesRatio"]),
       priceToBookRatio: optionalNum(item, ["priceToBookRatio"]),
       evToEbitda: optionalNum(metricItem, ["enterpriseValueOverEBITDA", "evToEbitda"]),
-      fcfYield: percent(optionalNum(metricItem, ["freeCashFlowYield", "fcfYield"]))
+      fcfYield: percentValue(optionalNum(metricItem, ["freeCashFlowYield", "fcfYield"]))
     };
   });
 }
@@ -763,6 +771,8 @@ function normalizeTechnicals(raw: unknown[] | null): TechnicalPoint[] {
 }
 
 function normalizePeers(raw: unknown[] | null): PeerSnapshot[] {
+  const seen = new Set<string>();
+
   return asArray(raw)
     .flatMap((item) => {
       const peers = item.peersList;
@@ -772,10 +782,49 @@ function normalizePeers(raw: unknown[] | null): PeerSnapshot[] {
       return [
         {
           symbol: str(item, ["symbol"]),
-          name: str(item, ["name", "companyName", "symbol"])
+          name: str(item, ["name", "companyName", "symbol"]),
+          marketCap: optionalNum(item, ["marketCap", "mktCap"])
         }
       ];
     })
-    .filter((item) => item.symbol)
+    .filter((item) => {
+      if (!item.symbol || seen.has(item.symbol)) return false;
+      seen.add(item.symbol);
+      return true;
+    })
     .slice(0, 8);
+}
+
+async function enrichPeers(peers: PeerSnapshot[], fromDate: string, toDate: string): Promise<PeerSnapshot[]> {
+  return Promise.all(
+    peers.map(async (peer) => {
+      const [ratiosRaw, historicalRaw] = await Promise.all([
+        fmpRequest<unknown[]>("ratios", { symbol: peer.symbol, period: "annual", limit: 1 }, 43200, fmpRecordArraySchema),
+        fmpRequest<unknown[]>(
+          "historical-price-eod/light",
+          { symbol: peer.symbol, from: fromDate, to: toDate },
+          86400,
+          fmpRecordArraySchema
+        )
+      ]);
+      const ratio = asArray(ratiosRaw)[0];
+      const prices = asArray(historicalRaw)
+        .filter((item) => str(item, ["date"], ""))
+        .sort((a, b) => dateTime(a, ["date"]) - dateTime(b, ["date"]));
+      const firstPrice = num(prices[0], ["close", "price"], Number.NaN);
+      const lastPrice = num(prices.at(-1), ["close", "price"], Number.NaN);
+      const priceChange1Y =
+        Number.isFinite(firstPrice) && Number.isFinite(lastPrice) && firstPrice !== 0
+          ? ((lastPrice - firstPrice) / Math.abs(firstPrice)) * 100
+          : undefined;
+
+      return {
+        ...peer,
+        peRatio: optionalNum(ratio, ["priceToEarningsRatio", "priceEarningsRatio", "peRatio"]),
+        operatingMargin: percentValue(optionalNum(ratio, ["operatingProfitMargin", "operatingMargin"])),
+        evToEbitda: optionalNum(ratio, ["enterpriseValueOverEBITDA", "evToEbitda"]),
+        priceChange1Y
+      };
+    })
+  );
 }
