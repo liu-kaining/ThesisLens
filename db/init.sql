@@ -282,6 +282,18 @@ CREATE TABLE IF NOT EXISTS research_memos (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS access_codes (
+  id TEXT PRIMARY KEY,
+  code_hash TEXT NOT NULL UNIQUE,
+  created_by TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  revoked_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS access_codes_active_idx
+  ON access_codes (expires_at, revoked_at);
+
 INSERT INTO users (id, email, name)
 VALUES ('demo-user', 'demo@thesislens.local', 'Demo Investor')
 ON CONFLICT (id) DO NOTHING;

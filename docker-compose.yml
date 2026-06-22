@@ -10,6 +10,10 @@ services:
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3009}
       FMP_API_KEY: ${FMP_API_KEY:-}
       FMP_USE_MOCKS: ${FMP_USE_MOCKS:-true}
+      AUTH_SECRET: ${AUTH_SECRET:-}
+      ADMIN_PASSPHRASE: ${ADMIN_PASSPHRASE:-}
+      AUTH_SECURE_COOKIES: ${AUTH_SECURE_COOKIES:-false}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-}
       DATABASE_URL: postgresql://thesislens:thesislens@postgres:5432/thesislens
       REDIS_URL: redis://redis:6379
     depends_on:
@@ -33,6 +37,7 @@ services:
       WORKER_REFRESH_INTERVAL_MS: ${WORKER_REFRESH_INTERVAL_MS:-300000}
       FMP_API_KEY: ${FMP_API_KEY:-}
       FMP_USE_MOCKS: ${FMP_USE_MOCKS:-true}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-}
       DATABASE_URL: postgresql://thesislens:thesislens@postgres:5432/thesislens
       REDIS_URL: redis://redis:6379
     depends_on:

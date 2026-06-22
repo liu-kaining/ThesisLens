@@ -930,15 +930,30 @@ Use `facts_hash`:
 ### 11.1 API Keys
 
 - Store FMP API key server-side only.
-- Store OpenAI API key server-side only.
 - Never expose keys in browser.
 - Use environment variables:
   - `FMP_API_KEY`
-  - `OPENAI_API_KEY`
+  - `AUTH_SECRET`
+  - `ADMIN_PASSPHRASE`
+  - `INTERNAL_API_TOKEN`
   - `DATABASE_URL`
   - `REDIS_URL`
 
-### 11.2 Licensing
+### 11.2 Access Control
+
+Current implementation uses an admin passphrase plus dynamic access-code gate:
+
+- Browser access is protected by a signed HttpOnly `thesislens_session` cookie.
+- `/login`, `/api/auth/login`, `/api/auth/logout`, and `/api/health` are public.
+- Other pages and API routes require a valid admin session.
+- Admins enter with `ADMIN_PASSPHRASE` and can rebuild time-limited access codes.
+- Access-code sessions have viewer permissions and cannot enter `/admin` or `/api/admin/*`.
+- Background workers call protected API routes with `x-internal-token`.
+- Public HTTPS deployments should set `AUTH_SECURE_COOKIES=true`.
+
+Future multi-user releases should replace the single-admin environment model with persisted users, password hashes or an external identity provider, role-based access control, audit logs, and per-user data ownership.
+
+### 11.3 Licensing
 
 FMP pricing notes that displaying or redistributing FMP data may require a specific Data Display and Licensing Agreement. Before public launch:
 
@@ -947,19 +962,19 @@ FMP pricing notes that displaying or redistributing FMP data may require a speci
 - Avoid raw data export.
 - Add source attribution where required.
 
-### 11.3 Legal Disclaimers
+### 11.4 Legal Disclaimers
 
 App must clearly state:
 
 - Information is for research and education.
 - Not investment advice.
 - Data may contain inaccuracies or delays.
-- AI summaries may be incomplete and should be independently verified.
+- Rule-based summaries may be incomplete and should be independently verified.
 
-### 11.4 User Data
+### 11.5 User Data
 
 - Encrypt secrets.
-- Use secure auth provider.
+- Use the single-admin gate only for private deployments.
 - Avoid storing brokerage credentials in MVP.
 - Store minimal personal data.
 
@@ -1183,4 +1198,3 @@ Potential future:
 6. Public data display may require licensing.
 
    Mitigation: Confirm FMP display terms before launch.
-

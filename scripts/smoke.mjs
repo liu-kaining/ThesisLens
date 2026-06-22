@@ -1,4 +1,8 @@
+import { existsSync, readFileSync } from "fs";
+
 const baseUrl = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
+const envFile = readEnvFile();
+const adminPassphrase = process.env.ADMIN_PASSPHRASE ?? process.env.ADMIN_PASSWORD ?? envFile.ADMIN_PASSPHRASE ?? envFile.ADMIN_PASSWORD;
 
 const checks = [
   {
@@ -12,9 +16,19 @@ const checks = [
     expect: ["ThesisLens", "观察列表变化", "研究候选"]
   },
   {
+    name: "admin page",
+    path: "/admin",
+    expect: ["管理员视角", "动态访问口令", "重建口令"]
+  },
+  {
+    name: "search api",
+    path: "/api/search?q=tesla",
+    expect: ["\"symbol\":\"TSLA\"", "\"Tesla, Inc.\""]
+  },
+  {
     name: "company page",
     path: "/stocks/AAPL",
-    expect: ["Apple Inc.", "今日结论", "规则研究备忘录", "证据账本"]
+    expect: ["Apple Inc.", "核心数据快照", "客观数据摘要", "证据账本"]
   },
   {
     name: "company snapshot api",
@@ -98,9 +112,13 @@ const checks = [
   }
 ];
 
+const cookieHeader = await login();
+
 for (const check of checks) {
   const url = new URL(check.path, baseUrl);
-  const response = await fetch(url);
+  const response = await fetch(url, {
+    headers: cookieHeader ? { cookie: cookieHeader } : undefined
+  });
   if (!response.ok) {
     throw new Error(`${check.name} failed with HTTP ${response.status}`);
   }
@@ -113,3 +131,44 @@ for (const check of checks) {
 }
 
 console.log(`Smoke tests passed against ${baseUrl}`);
+
+async function login() {
+  if (!adminPassphrase) {
+    throw new Error("Smoke auth failed: ADMIN_PASSPHRASE is required.");
+  }
+
+  const response = await fetch(new URL("/api/auth/login", baseUrl), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      passphrase: adminPassphrase,
+      next: "/"
+    })
+  });
+  if (!response.ok) {
+    throw new Error(`Smoke auth failed with HTTP ${response.status}`);
+  }
+
+  const getSetCookie = response.headers.getSetCookie?.bind(response.headers);
+  const cookies = getSetCookie ? getSetCookie() : [response.headers.get("set-cookie")].filter(Boolean);
+  const header = cookies.map((cookie) => cookie.split(";")[0]).join("; ");
+  if (!header.includes("thesislens_session=")) {
+    throw new Error("Smoke auth failed: session cookie was not returned.");
+  }
+  console.log("ok - auth login");
+  return header;
+}
+
+function readEnvFile() {
+  if (!existsSync(".env")) return {};
+  return Object.fromEntries(
+    readFileSync(".env", "utf8")
+      .split(/\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#") && line.includes("="))
+      .map((line) => {
+        const index = line.indexOf("=");
+        return [line.slice(0, index), line.slice(index + 1)];
+      })
+  );
+}

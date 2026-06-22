@@ -1,4 +1,4 @@
-import { randomUUID } from "crypto";
+import { createHash, randomBytes, randomUUID } from "crypto";
 import { Pool } from "pg";
 import type { ResearchMemo } from "@/lib/types";
 
@@ -48,6 +48,19 @@ export type AlertRuleRecord = {
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
+};
+
+export type AccessCodeRecord = {
+  id: string;
+  codeHash: string;
+  createdBy: string;
+  createdAt: string;
+  expiresAt: string;
+  revokedAt?: string | null;
+};
+
+export type AccessCodePublicRecord = Omit<AccessCodeRecord, "codeHash"> & {
+  active: boolean;
 };
 
 const memoryWatchlist = new Map<string, WatchlistItemRecord>([
@@ -166,6 +179,28 @@ const memoryAlerts = new Map<string, AlertRuleRecord>([
     }
   ]
 ]);
+
+const memoryAccessCodes = new Map<string, AccessCodeRecord>();
+
+function hashAccessCode(code: string) {
+  return createHash("sha256").update(code.trim()).digest("hex");
+}
+
+function generateAccessCode() {
+  return randomBytes(6).toString("base64url").toUpperCase();
+}
+
+function publicAccessCode(record: AccessCodeRecord): AccessCodePublicRecord {
+  const active = !record.revokedAt && new Date(record.expiresAt).getTime() > Date.now();
+  return {
+    id: record.id,
+    createdBy: record.createdBy,
+    createdAt: record.createdAt,
+    expiresAt: record.expiresAt,
+    revokedAt: record.revokedAt ?? null,
+    active
+  };
+}
 
 let pool: Pool | null = null;
 let schemaReady: Promise<boolean> | null = null;
@@ -480,6 +515,18 @@ async function ensureSchema() {
           created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
+
+        CREATE TABLE IF NOT EXISTS access_codes (
+          id TEXT PRIMARY KEY,
+          code_hash TEXT NOT NULL UNIQUE,
+          created_by TEXT NOT NULL,
+          expires_at TIMESTAMPTZ NOT NULL,
+          revoked_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE INDEX IF NOT EXISTS access_codes_active_idx
+          ON access_codes (expires_at, revoked_at);
       `);
 
       await pg.query(
@@ -732,6 +779,151 @@ export async function saveResearchMemo(memo: ResearchMemo) {
   } catch {
     // Persistence should never block research rendering.
   }
+}
+
+export async function createAccessCode(input: {
+  ttlHours?: number;
+  createdBy: string;
+}): Promise<{ code: string; record: AccessCodePublicRecord }> {
+  const ttlHours = clampAccessCodeTtl(input.ttlHours ?? 24);
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + ttlHours * 60 * 60 * 1000);
+  const code = generateAccessCode();
+  const record: AccessCodeRecord = {
+    id: randomUUID(),
+    codeHash: hashAccessCode(code),
+    createdBy: input.createdBy,
+    createdAt: now.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+    revokedAt: null
+  };
+  const ready = await ensureSchema();
+  const pg = ready ? getPool() : null;
+
+  if (!pg) {
+    const revokedAt = now.toISOString();
+    for (const existing of memoryAccessCodes.values()) {
+      if (!existing.revokedAt && new Date(existing.expiresAt).getTime() > now.getTime()) {
+        existing.revokedAt = revokedAt;
+      }
+    }
+    memoryAccessCodes.set(record.id, record);
+    return { code, record: publicAccessCode(record) };
+  }
+
+  try {
+    await pg.query("UPDATE access_codes SET revoked_at = NOW() WHERE revoked_at IS NULL AND expires_at > NOW()");
+    await pg.query(
+      `
+      INSERT INTO access_codes (id, code_hash, created_by, expires_at)
+      VALUES ($1, $2, $3, $4)
+      `,
+      [record.id, record.codeHash, record.createdBy, record.expiresAt]
+    );
+  } catch {
+    memoryAccessCodes.set(record.id, record);
+  }
+
+  return { code, record: publicAccessCode(record) };
+}
+
+export async function getAccessCodes(): Promise<AccessCodePublicRecord[]> {
+  const ready = await ensureSchema();
+  const pg = ready ? getPool() : null;
+
+  if (!pg) {
+    return Array.from(memoryAccessCodes.values())
+      .map(publicAccessCode)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, 10);
+  }
+
+  try {
+    const rows = await pg.query<{
+      id: string;
+      created_by: string;
+      created_at: Date;
+      expires_at: Date;
+      revoked_at: Date | null;
+    }>(
+      `
+      SELECT id, created_by, created_at, expires_at, revoked_at
+      FROM access_codes
+      ORDER BY created_at DESC
+      LIMIT 10
+      `
+    );
+
+    return rows.rows.map((row) =>
+      publicAccessCode({
+        id: row.id,
+        codeHash: "",
+        createdBy: row.created_by,
+        createdAt: row.created_at.toISOString(),
+        expiresAt: row.expires_at.toISOString(),
+        revokedAt: row.revoked_at?.toISOString() ?? null
+      })
+    );
+  } catch {
+    return Array.from(memoryAccessCodes.values())
+      .map(publicAccessCode)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, 10);
+  }
+}
+
+export async function verifyAccessCode(code: string): Promise<AccessCodePublicRecord | null> {
+  const normalized = code.trim().toUpperCase();
+  if (!normalized) return null;
+  const codeHash = hashAccessCode(normalized);
+  const ready = await ensureSchema();
+  const pg = ready ? getPool() : null;
+
+  if (!pg) {
+    const match = Array.from(memoryAccessCodes.values()).find(
+      (record) =>
+        record.codeHash === codeHash &&
+        !record.revokedAt &&
+        new Date(record.expiresAt).getTime() > Date.now()
+    );
+    return match ? publicAccessCode(match) : null;
+  }
+
+  try {
+    const rows = await pg.query<{
+      id: string;
+      created_by: string;
+      created_at: Date;
+      expires_at: Date;
+      revoked_at: Date | null;
+    }>(
+      `
+      SELECT id, created_by, created_at, expires_at, revoked_at
+      FROM access_codes
+      WHERE code_hash = $1 AND revoked_at IS NULL AND expires_at > NOW()
+      ORDER BY created_at DESC
+      LIMIT 1
+      `,
+      [codeHash]
+    );
+    const row = rows.rows[0];
+    if (!row) return null;
+    return publicAccessCode({
+      id: row.id,
+      codeHash,
+      createdBy: row.created_by,
+      createdAt: row.created_at.toISOString(),
+      expiresAt: row.expires_at.toISOString(),
+      revokedAt: row.revoked_at?.toISOString() ?? null
+    });
+  } catch {
+    return null;
+  }
+}
+
+function clampAccessCodeTtl(ttlHours: number) {
+  if (!Number.isFinite(ttlHours)) return 24;
+  return Math.max(1, Math.min(168, Math.round(ttlHours)));
 }
 
 export async function getSavedTheses(): Promise<SavedThesisRecord[]> {

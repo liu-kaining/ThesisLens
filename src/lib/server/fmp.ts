@@ -91,6 +91,7 @@ type EndpointStatus = {
 };
 
 const endpointStatuses = new Map<string, EndpointStatus>();
+const US_SEARCH_EXCHANGES = new Set(["NASDAQ", "NYSE", "AMEX", "CBOE", "OTC"]);
 
 function shouldUseMocks() {
   return process.env.FMP_USE_MOCKS !== "false" || !process.env.FMP_API_KEY;
@@ -230,13 +231,11 @@ export async function searchFmpSymbols(query: string): Promise<SearchResult[]> {
     );
   }
 
-  const raw = await fmpRequest<unknown[]>(
-    "search-symbol",
-    { query: normalized, limit: 12 },
-    3600,
-    fmpRecordArraySchema
-  );
-  const liveResults = asArray(raw).map((item) => ({
+  const [symbolRaw, nameRaw] = await Promise.all([
+    fmpRequest<unknown[]>("search-symbol", { query: normalized, limit: 12 }, 3600, fmpRecordArraySchema),
+    fmpRequest<unknown[]>("search-name", { query: query.trim(), limit: 12 }, 3600, fmpRecordArraySchema)
+  ]);
+  const liveResults = [...asArray(symbolRaw), ...asArray(nameRaw)].map((item) => ({
     symbol: str(item, ["symbol"]),
     name: str(item, ["name", "companyName"]),
     exchange: str(item, ["exchange", "stockExchange"], "US"),
@@ -244,10 +243,31 @@ export async function searchFmpSymbols(query: string): Promise<SearchResult[]> {
     industry: str(item, ["industry"]),
     marketCap: optionalNum(item, ["marketCap"])
   }));
+  const deduped = Array.from(
+    new Map(
+      liveResults
+        .filter((item) => item.symbol && item.name && US_SEARCH_EXCHANGES.has((item.exchange ?? "").toUpperCase()))
+        .map((item) => [item.symbol, item])
+    ).values()
+  ).sort((a, b) => searchRank(a, normalized) - searchRank(b, normalized));
 
-  return liveResults.length > 0
-    ? liveResults.filter((item) => item.symbol && item.name)
+  return deduped.length > 0
+    ? deduped
     : mockSearchResults.filter((item) => item.symbol.includes(normalized));
+}
+
+function searchRank(item: SearchResult, query: string) {
+  const symbol = item.symbol.toUpperCase();
+  const name = item.name.toUpperCase();
+  const exchange = item.exchange?.toUpperCase() ?? "";
+  const exactSymbol = symbol === query ? 0 : 1000;
+  const commonUsListing = !symbol.includes(".") && ["NASDAQ", "NYSE", "AMEX"].includes(exchange) ? 0 : 100;
+  const preferredExchange = ["NASDAQ", "NYSE", "AMEX", "CBOE", "OTC"].indexOf(exchange);
+  const exchangeScore = preferredExchange >= 0 ? preferredExchange * 10 : 80;
+  const productPenalty = /\b(ETF|ETN|FUND|SHARES|YIELD|INCOME|2X|3X|TOKEN|LEVERAGE)\b/.test(name) ? 50 : 0;
+  const nameMatch = name.startsWith(query) ? 0 : name.includes(query) ? 10 : 30;
+
+  return exactSymbol + commonUsListing + exchangeScore + productPenalty + nameMatch;
 }
 
 export async function getFmpResearchSnapshot(symbol: string): Promise<ResearchSnapshot> {

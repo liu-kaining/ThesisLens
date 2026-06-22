@@ -73,10 +73,14 @@ for (const [name, path, params] of checks) {
       // Keep raw text length only.
     }
     const itemCount = Array.isArray(json) ? json.length : json && typeof json === "object" ? 1 : 0;
+    const responseLead = text.trim().slice(0, 500);
     const denied =
+      response.status === 402 ||
       response.status === 401 ||
       response.status === 403 ||
-      /limit|not available|upgrade|unauthorized|apikey|premium/i.test(text);
+      /^(rate limit|not available|upgrade|unauthorized|invalid api ?key|premium endpoint|restricted endpoint)/i.test(
+        responseLead
+      );
 
     results.push({
       name,

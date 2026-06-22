@@ -1,4 +1,5 @@
 import { AppNav } from "@/components/app-nav";
+import { getAuthConfigStatus } from "@/lib/auth/session";
 import { getCacheStats } from "@/lib/server/cache";
 import { getDatabaseHealth } from "@/lib/server/db";
 
@@ -6,6 +7,7 @@ export default async function SettingsPage() {
   const [database, cache] = await Promise.all([getDatabaseHealth(), getCacheStats()]);
   const hasFmpKey = Boolean(process.env.FMP_API_KEY);
   const fmpMode = process.env.FMP_USE_MOCKS !== "false" || !hasFmpKey ? "示例/兜底" : "实时 FMP";
+  const auth = getAuthConfigStatus();
 
   return (
     <main className="min-h-screen bg-canvas">
@@ -22,8 +24,13 @@ export default async function SettingsPage() {
           </p>
         </section>
 
-        <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
           <StatusCard label="FMP 模式" value={fmpMode} detail={hasFmpKey ? "已配置 API key" : "未配置 API key"} />
+          <StatusCard
+            label="访问控制"
+            value={auth.authConfigured ? "口令登录" : "未配置"}
+            detail={auth.internalTokenConfigured ? "内部 token 已配置" : "内部 token 缺失"}
+          />
           <StatusCard
             label="数据库"
             value={database.connected ? "Postgres" : "内存兜底"}
@@ -42,11 +49,13 @@ export default async function SettingsPage() {
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             {[
               "用真实 key 验证 FMP Premium 各端点的可访问性。",
+              "生产环境必须更换 ADMIN_PASSPHRASE、AUTH_SECRET 和 INTERNAL_API_TOKEN。",
+              "公开部署建议启用 HTTPS，并设置 AUTH_SECURE_COOKIES=true。",
               "公开上线前确认 FMP 数据展示和再分发权限。",
               "每个研究结论都必须能回到证据 ID。",
               "生产环境使用 Docker 或托管服务里的 Postgres 和 Redis。",
-              "规则研究备忘录只能作为研究摘要，不作为投资建议。",
-              "存储真实用户观察列表前，需要加入登录和权限控制。"
+              "研究摘要和分数只作为证据索引，不作为投资建议。",
+              "多人使用前，需要加入真实用户、角色、审计日志和数据归属。"
             ].map((item) => (
               <div key={item} className="rounded-md border border-line bg-canvas p-3 text-sm leading-6 text-muted">
                 {item}

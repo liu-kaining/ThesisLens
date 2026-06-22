@@ -72,6 +72,10 @@ Important variables:
 
 - `FMP_API_KEY`: Financial Modeling Prep API key.
 - `FMP_USE_MOCKS`: `true` by default. Set to `false` to use live FMP data.
+- `ADMIN_PASSPHRASE`: single-admin passphrase. Use this to enter `/admin` and rebuild access codes.
+- `AUTH_SECRET`: random secret used to sign the HttpOnly session cookie.
+- `AUTH_SECURE_COOKIES`: set to `true` when serving over HTTPS.
+- `INTERNAL_API_TOKEN`: shared token used by the worker for protected internal API calls.
 - `DATABASE_URL`: optional outside Docker. If missing/unavailable, memory fallback is used.
 - `DATABASE_DISABLED`: set to `true` to force memory fallback.
 - `REDIS_URL`: optional outside Docker. If missing/unavailable, memory cache fallback is used.
@@ -91,7 +95,10 @@ Important variables:
 The current MVP includes:
 
 - Dashboard-first experience, not a marketing landing page.
-- U.S. stock search with live/mock data fallback.
+- Passphrase login gate with signed HttpOnly session cookies.
+- Time-limited dynamic access codes that only admins can rebuild.
+- Internal API token path for background worker refreshes.
+- U.S. stock search with live/mock data fallback and U.S. exchange prioritization.
 - Company research page.
 - Watchlist page with add/remove support and optional Postgres persistence.
 - Research screens for quality, expectation momentum, valuation questions, and event risk.
@@ -117,6 +124,7 @@ Key routes:
 - `/alerts`
 - `/market`
 - `/calendar`
+- `/admin`
 - `/settings`
 - `/stocks/AAPL`
 - `/api/health`

@@ -31,15 +31,24 @@ describe("FMP adapter", () => {
   it("maps live symbol search results and records endpoint telemetry", async () => {
     const fetchMock = vi.fn(async (input: URL | RequestInfo) => {
       const { endpoint } = endpointFromInput(input);
-      expect(endpoint).toBe("search-symbol");
+      if (endpoint === "search-symbol") {
+        return jsonResponse([
+          {
+            symbol: "AAPL",
+            name: "Apple Inc.",
+            exchange: "NASDAQ",
+            sector: "Technology",
+            industry: "Consumer Electronics",
+            marketCap: 2980000000000
+          }
+        ]);
+      }
+
       return jsonResponse([
         {
-          symbol: "AAPL",
+          symbol: "AAPL.NE",
           name: "Apple Inc.",
-          exchange: "NASDAQ",
-          sector: "Technology",
-          industry: "Consumer Electronics",
-          marketCap: 2980000000000
+          exchange: "NEO"
         }
       ]);
     });
@@ -63,9 +72,15 @@ describe("FMP adapter", () => {
     expect(calledUrl.searchParams.get("query")).toBe("APPLE");
     expect(calledUrl.searchParams.get("limit")).toBe("12");
     expect(calledUrl.searchParams.get("apikey")).toBe("test-fmp-key");
-    expect(health).toHaveLength(1);
-    expect(health[0]).toMatchObject({
+    expect(health).toHaveLength(2);
+    expect(health.find((endpoint) => endpoint.path === "search-symbol")).toMatchObject({
       path: "search-symbol",
+      ok: true,
+      httpStatus: 200,
+      itemCount: 1
+    });
+    expect(health.find((endpoint) => endpoint.path === "search-name")).toMatchObject({
+      path: "search-name",
       ok: true,
       httpStatus: 200,
       itemCount: 1
@@ -80,6 +95,7 @@ describe("FMP adapter", () => {
     const { getFmpEndpointHealth, searchFmpSymbols } = await import("@/lib/server/fmp");
     const results = await searchFmpSymbols("AAPL");
     const status = getFmpEndpointHealth().find((endpoint) => endpoint.path === "search-symbol");
+    const nameStatus = getFmpEndpointHealth().find((endpoint) => endpoint.path === "search-name");
 
     expect(results.some((item) => item.symbol === "AAPL")).toBe(true);
     expect(status).toMatchObject({
@@ -88,6 +104,11 @@ describe("FMP adapter", () => {
       httpStatus: 200
     });
     expect(status?.lastError).toContain("Expected array");
+    expect(nameStatus).toMatchObject({
+      path: "search-name",
+      ok: false,
+      httpStatus: 200
+    });
   });
 
   it("returns a mixed snapshot and endpoint errors when critical live payloads fail validation", async () => {

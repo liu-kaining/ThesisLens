@@ -265,13 +265,18 @@ export function CompanyPage({ research }: CompanyPageProps) {
           </Panel>
         </section>
 
-        <section className="grid gap-6 lg:grid-cols-[1fr_0.85fr]">
-          <Panel icon={<BookOpenText className="h-4 w-4" />} title="客观数据摘要">
+        <section className="grid items-stretch gap-6 lg:grid-cols-[1fr_0.85fr]">
+          <Panel icon={<BookOpenText className="h-4 w-4" />} title="客观数据摘要" className="h-full">
             <ObjectiveDataSummary snapshot={snapshot} scores={scores} />
           </Panel>
 
-          <Panel icon={<ShieldQuestion className="h-4 w-4" />} title="证据账本">
-            <div className="flex max-h-[720px] flex-col gap-3 overflow-auto pr-1">
+          <Panel
+            icon={<ShieldQuestion className="h-4 w-4" />}
+            title="证据账本"
+            className="h-full"
+            contentClassName="flex min-h-[720px] flex-1 lg:min-h-0"
+          >
+            <div className="flex h-full min-h-0 flex-1 flex-col gap-3 overflow-auto pr-1">
               {evidence.slice(0, 18).map((item) => (
                 <EvidenceRow key={item.id} evidence={item} />
               ))}
@@ -295,16 +300,20 @@ function SectionTitle({ icon, title }: { icon: React.ReactNode; title: string })
 function Panel({
   icon,
   title,
-  children
+  children,
+  className = "",
+  contentClassName = ""
 }: {
   icon: React.ReactNode;
   title: string;
   children: React.ReactNode;
+  className?: string;
+  contentClassName?: string;
 }) {
   return (
-    <div className="rounded-md border border-line bg-white p-5 shadow-sm">
+    <div className={`flex flex-col rounded-md border border-line bg-white p-5 shadow-sm ${className}`}>
       <SectionTitle icon={icon} title={title} />
-      <div className="mt-4">{children}</div>
+      <div className={`mt-4 ${contentClassName}`}>{children}</div>
     </div>
   );
 }

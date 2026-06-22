@@ -3,13 +3,19 @@ const intervalMs = Number(process.env.WORKER_REFRESH_INTERVAL_MS ?? 5 * 60 * 100
 const initialDelayMs = Number(process.env.WORKER_INITIAL_DELAY_MS ?? 10_000);
 const maxSymbols = Number(process.env.WORKER_MAX_SYMBOLS ?? 25);
 const runOnce = process.env.WORKER_RUN_ONCE === "true";
+const internalToken = process.env.INTERNAL_API_TOKEN;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function fetchJson(path, init) {
-  const response = await fetch(new URL(path, appBaseUrl), init);
+  const headers = new Headers(init?.headers);
+  if (internalToken) headers.set("x-internal-token", internalToken);
+  const response = await fetch(new URL(path, appBaseUrl), {
+    ...init,
+    headers
+  });
   if (!response.ok) {
     throw new Error(`${path} returned HTTP ${response.status}`);
   }
@@ -81,4 +87,3 @@ main().catch((error) => {
   console.error("[worker] fatal", error);
   process.exit(1);
 });
-
