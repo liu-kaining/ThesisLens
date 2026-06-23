@@ -1,4 +1,5 @@
 import { getCompanyResearch } from "@/lib/server/research";
+import { getResearchUniverse, type ResearchUniverse } from "@/lib/server/universe";
 import type { Direction } from "@/lib/types";
 
 export type ScreenResult = {
@@ -21,7 +22,11 @@ export type ResearchScreen = {
   results: ScreenResult[];
 };
 
-const DEFAULT_UNIVERSE = ["AAPL", "MSFT", "NVDA"];
+export type ResearchScreensModel = {
+  generatedAt: string;
+  universe: ResearchUniverse;
+  screens: ResearchScreen[];
+};
 
 function scoreValue(
   scores: Awaited<ReturnType<typeof getCompanyResearch>>["scores"],
@@ -51,8 +56,9 @@ function resultFromResearch(
   };
 }
 
-export async function getResearchScreens(): Promise<ResearchScreen[]> {
-  const models = await Promise.all(DEFAULT_UNIVERSE.map((symbol) => getCompanyResearch(symbol)));
+export async function getResearchScreens(): Promise<ResearchScreensModel> {
+  const universe = await getResearchUniverse();
+  const models = await Promise.all(universe.symbols.map((symbol) => getCompanyResearch(symbol)));
 
   const highQuality = models
     .filter((model) => scoreValue(model.scores, "quality") >= 75)
@@ -98,34 +104,38 @@ export async function getResearchScreens(): Promise<ResearchScreen[]> {
     )
     .sort((a, b) => b.eventRisk - a.eventRisk);
 
-  return [
-    {
-      id: "high-quality-pullbacks",
-      title: "高质量公司",
-      description:
-        "质量、盈利能力和现金流证据较强，值得进一步做估值研究的公司。",
-      results: highQuality
-    },
-    {
-      id: "revision-momentum",
-      title: "预期动量转强",
-      description:
-        "分析师预期修正和目标价证据正在改善的股票。",
-      results: revisionMomentum
-    },
-    {
-      id: "valuation-questions",
-      title: "估值问题",
-      description:
-        "核心问题是价格、DCF、倍数和同行相对位置是否一致的标的。",
-      results: valuationQuestions
-    },
-    {
-      id: "event-risk",
-      title: "事件风险观察",
-      description:
-        "近期财报、SEC 文件、披露或新闻流值得关注的公司。",
-      results: eventRisk
-    }
-  ];
+  return {
+    generatedAt: new Date().toISOString(),
+    universe,
+    screens: [
+      {
+        id: "high-quality-pullbacks",
+        title: "高质量公司",
+        description:
+          "质量、盈利能力和现金流证据较强，值得进一步做估值研究的公司。",
+        results: highQuality
+      },
+      {
+        id: "revision-momentum",
+        title: "预期动量转强",
+        description:
+          "分析师预期修正和目标价证据正在改善的股票。",
+        results: revisionMomentum
+      },
+      {
+        id: "valuation-questions",
+        title: "估值问题",
+        description:
+          "核心问题是价格、DCF、倍数和同行相对位置是否一致的标的。",
+        results: valuationQuestions
+      },
+      {
+        id: "event-risk",
+        title: "事件风险观察",
+        description:
+          "近期财报、SEC 文件、披露或新闻流值得关注的公司。",
+        results: eventRisk
+      }
+    ]
+  };
 }

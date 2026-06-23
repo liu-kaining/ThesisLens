@@ -356,6 +356,12 @@ export type EnrichedResearch = {
 
 export type DashboardModel = {
   generatedAt: string;
+  universe: {
+    source: "watchlist";
+    symbols: string[];
+    count: number;
+    isEmpty: boolean;
+  };
   marketPulse: Array<{
     label: string;
     value: string;

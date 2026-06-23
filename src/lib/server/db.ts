@@ -545,16 +545,6 @@ async function ensureSchema() {
         `,
         [DEMO_WATCHLIST_ID, DEMO_USER_ID, "Core Research"]
       );
-      for (const item of memoryWatchlist.values()) {
-        await pg.query(
-          `
-          INSERT INTO watchlist_items (id, watchlist_id, symbol, notes)
-          VALUES ($1, $2, $3, $4)
-          ON CONFLICT (watchlist_id, symbol) DO NOTHING
-          `,
-          [item.id, DEMO_WATCHLIST_ID, item.symbol, item.notes ?? null]
-        );
-      }
       for (const thesis of memoryTheses.values()) {
         await pg.query(
           `

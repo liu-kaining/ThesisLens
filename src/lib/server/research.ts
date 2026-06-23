@@ -1,9 +1,10 @@
 import { buildResearchMemo } from "@/lib/research-memo";
 import { deleteCache, getJsonCache, setJsonCache } from "@/lib/server/cache";
-import { getWatchlist, saveResearchMemo } from "@/lib/server/db";
+import { saveResearchMemo } from "@/lib/server/db";
 import { getFmpResearchSnapshot, searchFmpSymbols } from "@/lib/server/fmp";
+import { getResearchUniverse } from "@/lib/server/universe";
 import { buildEvidence, computeScores, computeSignals } from "@/lib/signals";
-import type { DashboardModel, EnrichedResearch } from "@/lib/types";
+import type { DashboardModel, Direction, EnrichedResearch } from "@/lib/types";
 
 const snapshotCache = new Map<string, { expiresAt: number; value: EnrichedResearch }>();
 const FIVE_MINUTES = 5 * 60 * 1000;
@@ -54,12 +55,37 @@ export async function refreshCompanyResearch(symbol: string): Promise<EnrichedRe
   return getCompanyResearch(normalized);
 }
 
+function averageCoreScore(scores: EnrichedResearch["scores"]) {
+  const coreScores = scores.filter((score) =>
+    ["quality", "valuation", "expectations"].includes(score.scoreType)
+  );
+  if (!coreScores.length) return 0;
+
+  return Math.round(
+    coreScores.reduce((sum, score) => sum + score.score, 0) / coreScores.length
+  );
+}
+
+function researchIdeaFromModel({ snapshot, scores, signals }: EnrichedResearch) {
+  const topSignal = signals[0];
+  const coreScore = averageCoreScore(scores);
+  const direction: Direction =
+    topSignal?.direction ?? (coreScore >= 70 ? "positive" : coreScore >= 45 ? "mixed" : "neutral");
+
+  return {
+    symbol: snapshot.profile.symbol,
+    title: topSignal?.title ?? "观察列表研究候选",
+    thesis:
+      topSignal?.summary ??
+      "先复核公司页中的基本面、估值、预期、事件和行为披露，再决定是否建立 thesis。",
+    direction,
+    score: coreScore
+  };
+}
+
 export async function getDashboardModel(): Promise<DashboardModel> {
-  const watchlist = await getWatchlist();
-  const symbols = watchlist.items.length
-    ? watchlist.items.map((item) => item.symbol).slice(0, 8)
-    : ["AAPL", "MSFT", "NVDA"];
-  const research = await Promise.all(symbols.map((symbol) => getCompanyResearch(symbol)));
+  const universe = await getResearchUniverse(8);
+  const research = await Promise.all(universe.symbols.map((symbol) => getCompanyResearch(symbol)));
 
   return {
     generatedAt: new Date().toISOString(),
@@ -83,40 +109,24 @@ export async function getDashboardModel(): Promise<DashboardModel> {
         detail: "近期财报窗口和 SEC 文件是主要事件风险来源。"
       }
     ],
+    universe,
     watchlist: research.map(({ snapshot, scores, signals }) => ({
       symbol: snapshot.profile.symbol,
       name: snapshot.profile.name,
       price: snapshot.quote.price,
       changePercent: snapshot.quote.changesPercentage,
       topSignal: signals[0]?.title ?? "暂无计算信号",
-      score: Math.round(
-        scores
-          .filter((score) => ["quality", "valuation", "expectations"].includes(score.scoreType))
-          .reduce((sum, score) => sum + score.score, 0) / 3
-      )
+      score: averageCoreScore(scores)
     })),
-    researchIdeas: [
-      {
-        symbol: "MSFT",
-        title: "高质量叠加预期动量",
-        thesis:
-          "利润率强、预期修正偏正，核心问题是估值纪律是否足够。",
-        direction: "positive"
-      },
-      {
-        symbol: "NVDA",
-        title: "高增长与高预期并存",
-        thesis:
-          "thesis 取决于未来需求能否继续跑赢已经很高的市场预期。",
-        direction: "mixed"
-      },
-      {
-        symbol: "AAPL",
-        title: "现金流稳健，但需要催化剂",
-        thesis:
-          "质量仍然稳健，但需要看到服务增长或硬件换机需求加速的证据。",
-        direction: "mixed"
-      }
-    ]
+    researchIdeas: research
+      .map(researchIdeaFromModel)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3)
+      .map((idea) => ({
+        symbol: idea.symbol,
+        title: idea.title,
+        thesis: idea.thesis,
+        direction: idea.direction
+      }))
   };
 }

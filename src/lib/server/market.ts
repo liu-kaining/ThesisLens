@@ -1,9 +1,53 @@
 import { getCompanyResearch } from "@/lib/server/research";
+import { getResearchUniverse, type ResearchUniverse } from "@/lib/server/universe";
 
-const DEFAULT_SYMBOLS = ["AAPL", "MSFT", "NVDA"];
+type MarketCompany = {
+  symbol: string;
+  name: string;
+  sector: string;
+  price: number;
+  changePercent: number;
+  marketCap: number;
+  pe?: number;
+  quality: number;
+  valuation: number;
+  expectations: number;
+};
 
-export async function getMarketModel(symbols = DEFAULT_SYMBOLS) {
-  const models = await Promise.all(symbols.map((symbol) => getCompanyResearch(symbol)));
+export type MarketModel = {
+  generatedAt: string;
+  universe: ResearchUniverse;
+  companies: MarketCompany[];
+  sectors: Array<{
+    sector: string;
+    count: number;
+    averageMove: number;
+    averageQuality: number;
+    averageValuation: number;
+  }>;
+};
+
+function universeFromSymbols(symbols: string[]): ResearchUniverse {
+  const seen = new Set<string>();
+  const normalized = symbols
+    .map((symbol) => symbol.trim().toUpperCase())
+    .filter((symbol) => {
+      if (!symbol || seen.has(symbol)) return false;
+      seen.add(symbol);
+      return true;
+    });
+
+  return {
+    source: "watchlist",
+    symbols: normalized,
+    count: normalized.length,
+    isEmpty: normalized.length === 0
+  };
+}
+
+export async function getMarketModel(symbols?: string[]): Promise<MarketModel> {
+  const universe = symbols ? universeFromSymbols(symbols) : await getResearchUniverse();
+  const models = await Promise.all(universe.symbols.map((symbol) => getCompanyResearch(symbol)));
   const companies = models.map((model) => ({
     symbol: model.snapshot.profile.symbol,
     name: model.snapshot.profile.name,
@@ -30,6 +74,7 @@ export async function getMarketModel(symbols = DEFAULT_SYMBOLS) {
 
   return {
     generatedAt: new Date().toISOString(),
+    universe,
     companies,
     sectors: Array.from(sectors.entries()).map(([sector, values]) => ({
       sector,
@@ -40,4 +85,3 @@ export async function getMarketModel(symbols = DEFAULT_SYMBOLS) {
     }))
   };
 }
-

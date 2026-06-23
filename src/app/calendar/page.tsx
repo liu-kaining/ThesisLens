@@ -6,7 +6,7 @@ import type { Severity } from "@/lib/types";
 import { getCalendarEvents } from "@/lib/server/calendar";
 
 export default async function CalendarPage() {
-  const events = await getCalendarEvents();
+  const calendar = await getCalendarEvents();
 
   return (
     <main className="min-h-screen bg-canvas">
@@ -18,14 +18,14 @@ export default async function CalendarPage() {
             催化剂、SEC 文件和 thesis 检查点。
           </h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-muted">
-            ThesisLens 把日历事件当作 thesis 压力测试。财报、SEC 文件、
-            公告和交易披露都应该对应到具体问题。
+            ThesisLens 把观察列表里的日历事件当作 thesis 压力测试。当前覆盖{" "}
+            {calendar.universe.count} 家公司；财报、SEC 文件和公告都应该对应到具体问题。
           </p>
         </section>
 
         <section className="rounded-md border border-line bg-white p-5 shadow-sm">
           <div className="grid gap-3">
-            {events.map((event) => (
+            {calendar.events.map((event) => (
               <Link
                 key={`${event.symbol}-${event.id}`}
                 href={`/stocks/${event.symbol}`}
@@ -44,6 +44,26 @@ export default async function CalendarPage() {
                 </span>
               </Link>
             ))}
+            {calendar.events.length === 0 ? (
+              <div className="rounded-md border border-dashed border-line bg-canvas p-5">
+                <h2 className="text-sm font-semibold text-ink">
+                  {calendar.universe.isEmpty ? "日历研究池为空" : "暂无近期事件"}
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-muted">
+                  {calendar.universe.isEmpty
+                    ? "先在观察列表中加入股票代码，日历会自动汇总这些公司的财报、SEC 文件和事件。"
+                    : "当前观察列表里没有可展示的近期事件；可以进入公司页查看完整新闻和文件。"}
+                </p>
+                {calendar.universe.isEmpty ? (
+                  <Link
+                    href="/watchlist"
+                    className="mt-4 inline-flex h-10 items-center rounded-md bg-ink px-4 text-sm font-semibold text-white transition hover:bg-steel"
+                  >
+                    打开观察列表
+                  </Link>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </section>
       </div>

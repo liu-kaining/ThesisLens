@@ -15,8 +15,8 @@ export default async function AlertsPage() {
             把研究信号变成可监控条件。
           </h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-muted">
-            提醒会评估 ThesisLens 分数和价格背景。当前版本可在网页中使用，
-            后续可以接入后台任务和通知。
+            提醒规则由你手动创建，可作用于观察列表中的股票，也可作用于任意美股代码。
+            当前版本在网页中评估 ThesisLens 分数、价格变化和事件风险。
           </p>
         </section>
         <AlertsClient initialAlerts={alerts} />

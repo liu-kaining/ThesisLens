@@ -15,8 +15,8 @@ export default async function WatchlistPage() {
             你的研究池今天发生了什么变化？
           </h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-muted">
-            观察列表是 ThesisLens 的日常工作台。它按可解释分数排序，
-            并突出每家公司当前最重要的研究信号。
+            观察列表是 ThesisLens 的默认研究宇宙。总览、选股器、市场和日历都会基于这里的标的生成，
+            组合、Thesis 和提醒则作为独立工作流手动维护。
           </p>
         </section>
         <WatchlistClient initialItems={watchlist.items} />

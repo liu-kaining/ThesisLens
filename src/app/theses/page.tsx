@@ -15,8 +15,8 @@ export default async function ThesesPage() {
             跟踪必须继续成立的条件。
           </h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-muted">
-            保存后的 thesis 会变成一张动态检查清单。下一步可以把每条 thesis
-            连接到信号、提醒、SEC 文件和观察列表变化。
+            Thesis 是你手动保存的研究假设，可以来自观察列表，也可以来自任意美股代码。
+            保存后它会变成一张检查清单，用来对照信号、提醒、SEC 文件和观察列表变化。
           </p>
         </section>
         <ThesesClient initialTheses={theses} />

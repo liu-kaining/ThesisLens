@@ -63,7 +63,7 @@ const checks = [
   {
     name: "watchlist api",
     path: "/api/watchlist",
-    expect: ["\"items\"", "\"symbol\"", "\"changeBadges\""]
+    expect: ["\"items\""]
   },
   {
     name: "screens api",
@@ -78,7 +78,7 @@ const checks = [
   {
     name: "calendar api",
     path: "/api/calendar",
-    expect: ["\"events\"", "\"symbol\""]
+    expect: ["\"events\"", "\"universe\""]
   },
   {
     name: "portfolio page",

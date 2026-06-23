@@ -15,8 +15,8 @@ export default async function PortfolioPage() {
             用 thesis 质量、估值和事件风险理解持仓暴露。
           </h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-muted">
-            组合页把手动持仓转成加权研究暴露。它不是券商连接，
-            而是用于观察集中度、质量、估值、催化剂和风险的研究视角。
+            组合页使用你手动录入的实际或模拟持仓，不会自动等于观察列表。
+            它把持仓转成加权研究暴露，用来观察集中度、质量、估值、催化剂和风险。
           </p>
         </section>
         <PortfolioClient initialPortfolio={portfolio} />

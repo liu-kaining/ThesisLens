@@ -16,42 +16,46 @@ export default async function MarketPage() {
             今天的市场研究背景。
           </h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-muted">
-            这里用质量、估值、行业背景和观察列表变化来描述当前研究池。
-            后续可以继续接入指数成分、行业表现、利率和经济日历等 FMP 数据。
+            这里用质量、估值、行业背景和价格变化描述观察列表里的研究池。
+            当前覆盖 {market.universe.count} 家公司；它不是全市场排名，而是你的研究宇宙横截面。
           </p>
         </section>
 
-        <section className="grid gap-4 md:grid-cols-3">
-          {market.companies.map((company) => (
-            <Link
-              key={company.symbol}
-              href={`/stocks/${company.symbol}`}
-              className="rounded-md border border-line bg-white p-5 shadow-sm transition hover:border-steel"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-steel">{company.symbol}</p>
-                  <h2 className="mt-1 text-lg font-semibold text-ink">{company.name}</h2>
+        {market.universe.isEmpty ? (
+          <EmptyUniverse />
+        ) : (
+          <section className="grid gap-4 md:grid-cols-3">
+            {market.companies.map((company) => (
+              <Link
+                key={company.symbol}
+                href={`/stocks/${company.symbol}`}
+                className="rounded-md border border-line bg-white p-5 shadow-sm transition hover:border-steel"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-steel">{company.symbol}</p>
+                    <h2 className="mt-1 text-lg font-semibold text-ink">{company.name}</h2>
+                  </div>
+                  <span
+                    className={
+                      company.changePercent >= 0
+                        ? "text-sm font-semibold text-moss"
+                        : "text-sm font-semibold text-brick"
+                    }
+                  >
+                    {formatPercent(company.changePercent)}
+                  </span>
                 </div>
-                <span
-                  className={
-                    company.changePercent >= 0
-                      ? "text-sm font-semibold text-moss"
-                      : "text-sm font-semibold text-brick"
-                  }
-                >
-                  {formatPercent(company.changePercent)}
-                </span>
-              </div>
-              <div className="mt-4 grid grid-cols-2 gap-3">
-                <Metric label="价格" value={formatCurrency(company.price, false)} />
-                <Metric label="P/E" value={formatRatio(company.pe, "x")} />
-                <Metric label="市值" value={formatCurrency(company.marketCap)} />
-                <Metric label="质量" value={`${company.quality}`} />
-              </div>
-            </Link>
-          ))}
-        </section>
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  <Metric label="价格" value={formatCurrency(company.price, false)} />
+                  <Metric label="P/E" value={formatRatio(company.pe, "x")} />
+                  <Metric label="市值" value={formatCurrency(company.marketCap)} />
+                  <Metric label="质量" value={`${company.quality}`} />
+                </div>
+              </Link>
+            ))}
+          </section>
+        )}
 
         <section className="rounded-md border border-line bg-white p-5 shadow-sm">
           <h2 className="text-sm font-semibold text-ink">行业快照</h2>
@@ -76,12 +80,36 @@ export default async function MarketPage() {
                     <td className="px-4 py-4">{sector.averageValuation}</td>
                   </tr>
                 ))}
+                {market.sectors.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-6 text-sm text-muted">
+                      观察列表为空，暂无行业快照。
+                    </td>
+                  </tr>
+                ) : null}
               </tbody>
             </table>
           </div>
         </section>
       </div>
     </main>
+  );
+}
+
+function EmptyUniverse() {
+  return (
+    <section className="rounded-md border border-dashed border-line bg-white p-5 shadow-sm">
+      <h2 className="text-sm font-semibold text-ink">市场研究池为空</h2>
+      <p className="mt-2 text-sm leading-6 text-muted">
+        市场页会横向比较观察列表中的公司。先添加标的后，这里会显示价格、质量、估值和行业分布。
+      </p>
+      <Link
+        href="/watchlist"
+        className="mt-4 inline-flex h-10 items-center rounded-md bg-ink px-4 text-sm font-semibold text-white transition hover:bg-steel"
+      >
+        打开观察列表
+      </Link>
+    </section>
   );
 }
 
