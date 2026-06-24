@@ -7,6 +7,7 @@ import { getCurrentSession } from "@/lib/server/auth";
 const navItems = [
   { href: "/", label: "总览" },
   { href: "/watchlist", label: "观察列表" },
+  { href: "/universes", label: "研究池" },
   { href: "/screens", label: "选股器" },
   { href: "/portfolio", label: "组合" },
   { href: "/theses", label: "Thesis" },

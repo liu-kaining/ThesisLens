@@ -1,5 +1,6 @@
 import { getMockSnapshot, mockSearchResults } from "@/lib/mock-data";
 import { formatCurrency } from "@/lib/format";
+import type { SystemUniverseId } from "@/lib/universes";
 import { z } from "zod";
 import type {
   AnalystEstimate,
@@ -90,8 +91,69 @@ type EndpointStatus = {
   lastError?: string;
 };
 
+export type FmpUniverseMember = {
+  symbol: string;
+  name?: string;
+  sector?: string;
+  industry?: string;
+  weight?: number | null;
+  rank?: number | null;
+  source: string;
+  raw?: Record<string, unknown>;
+};
+
 const endpointStatuses = new Map<string, EndpointStatus>();
 const US_SEARCH_EXCHANGES = new Set(["NASDAQ", "NYSE", "AMEX", "CBOE", "OTC"]);
+const INDEX_UNIVERSE_ENDPOINTS: Partial<Record<SystemUniverseId, string>> = {
+  sp500: "sp500-constituent",
+  nasdaq: "nasdaq-constituent",
+  dowjones: "dowjones-constituent"
+};
+const ETF_UNIVERSE_SYMBOLS: Partial<Record<SystemUniverseId, string>> = {
+  spy_holdings: "SPY",
+  qqq_holdings: "QQQ"
+};
+const ETF_FALLBACK_ENDPOINTS: Partial<Record<SystemUniverseId, string>> = {
+  spy_holdings: "sp500-constituent",
+  qqq_holdings: "nasdaq-constituent"
+};
+const mockUniverseMembers: Record<SystemUniverseId, FmpUniverseMember[]> = {
+  sp500: [
+    { symbol: "AAPL", name: "Apple Inc.", sector: "Technology", rank: 1, source: "mock" },
+    { symbol: "MSFT", name: "Microsoft Corporation", sector: "Technology", rank: 2, source: "mock" },
+    { symbol: "NVDA", name: "NVIDIA Corporation", sector: "Technology", rank: 3, source: "mock" },
+    { symbol: "AMZN", name: "Amazon.com, Inc.", sector: "Consumer Cyclical", rank: 4, source: "mock" },
+    { symbol: "META", name: "Meta Platforms, Inc.", sector: "Communication Services", rank: 5, source: "mock" }
+  ],
+  qqq_holdings: [
+    { symbol: "AAPL", name: "Apple Inc.", sector: "Technology", weight: 8.5, rank: 1, source: "mock" },
+    { symbol: "MSFT", name: "Microsoft Corporation", sector: "Technology", weight: 8.1, rank: 2, source: "mock" },
+    { symbol: "NVDA", name: "NVIDIA Corporation", sector: "Technology", weight: 7.6, rank: 3, source: "mock" },
+    { symbol: "AVGO", name: "Broadcom Inc.", sector: "Technology", weight: 4.8, rank: 4, source: "mock" },
+    { symbol: "AMZN", name: "Amazon.com, Inc.", sector: "Consumer Cyclical", weight: 4.6, rank: 5, source: "mock" }
+  ],
+  spy_holdings: [
+    { symbol: "AAPL", name: "Apple Inc.", sector: "Technology", weight: 6.8, rank: 1, source: "mock" },
+    { symbol: "MSFT", name: "Microsoft Corporation", sector: "Technology", weight: 6.4, rank: 2, source: "mock" },
+    { symbol: "NVDA", name: "NVIDIA Corporation", sector: "Technology", weight: 5.9, rank: 3, source: "mock" },
+    { symbol: "AMZN", name: "Amazon.com, Inc.", sector: "Consumer Cyclical", weight: 3.7, rank: 4, source: "mock" },
+    { symbol: "META", name: "Meta Platforms, Inc.", sector: "Communication Services", weight: 2.6, rank: 5, source: "mock" }
+  ],
+  dowjones: [
+    { symbol: "MSFT", name: "Microsoft Corporation", sector: "Technology", rank: 1, source: "mock" },
+    { symbol: "AAPL", name: "Apple Inc.", sector: "Technology", rank: 2, source: "mock" },
+    { symbol: "AMZN", name: "Amazon.com, Inc.", sector: "Consumer Cyclical", rank: 3, source: "mock" },
+    { symbol: "JPM", name: "JPMorgan Chase & Co.", sector: "Financial Services", rank: 4, source: "mock" },
+    { symbol: "V", name: "Visa Inc.", sector: "Financial Services", rank: 5, source: "mock" }
+  ],
+  nasdaq: [
+    { symbol: "AAPL", name: "Apple Inc.", sector: "Technology", rank: 1, source: "mock" },
+    { symbol: "MSFT", name: "Microsoft Corporation", sector: "Technology", rank: 2, source: "mock" },
+    { symbol: "NVDA", name: "NVIDIA Corporation", sector: "Technology", rank: 3, source: "mock" },
+    { symbol: "GOOGL", name: "Alphabet Inc.", sector: "Communication Services", rank: 4, source: "mock" },
+    { symbol: "AVGO", name: "Broadcom Inc.", sector: "Technology", rank: 5, source: "mock" }
+  ]
+};
 
 function shouldUseMocks() {
   return process.env.FMP_USE_MOCKS !== "false" || !process.env.FMP_API_KEY;
@@ -268,6 +330,62 @@ function searchRank(item: SearchResult, query: string) {
   const nameMatch = name.startsWith(query) ? 0 : name.includes(query) ? 10 : 30;
 
   return exactSymbol + commonUsListing + exchangeScore + productPenalty + nameMatch;
+}
+
+function normalizeTickerSymbol(value: string) {
+  return value.trim().toUpperCase().replace(/\s+/g, "");
+}
+
+function isLikelyCommonStockSymbol(symbol: string) {
+  return /^[A-Z][A-Z0-9-]{0,9}$/.test(symbol) && !["USD", "CASH", "N/A"].includes(symbol);
+}
+
+function normalizeUniverseMember(item: Dict, rank: number, source: string): FmpUniverseMember | null {
+  const symbol = normalizeTickerSymbol(
+    str(item, ["symbol", "asset", "ticker", "securitySymbol", "holdingSymbol"], "")
+  );
+  if (!symbol || !isLikelyCommonStockSymbol(symbol)) return null;
+
+  return {
+    symbol,
+    name: str(item, ["name", "companyName", "company", "securityName", "holdingName", "assetName"]),
+    sector: str(item, ["sector"]),
+    industry: str(item, ["industry", "subSector"]),
+    weight: optionalNum(item, ["weightPercentage", "weight", "percentage", "marketValuePercentage"]),
+    rank,
+    source,
+    raw: item
+  };
+}
+
+export async function getFmpUniverseMembers(universeId: SystemUniverseId): Promise<FmpUniverseMember[]> {
+  if (shouldUseMocks()) {
+    return mockUniverseMembers[universeId] ?? [];
+  }
+
+  const indexEndpoint = INDEX_UNIVERSE_ENDPOINTS[universeId];
+  const etfSymbol = ETF_UNIVERSE_SYMBOLS[universeId];
+  const source = indexEndpoint ?? (etfSymbol ? `etf/holdings:${etfSymbol}` : universeId);
+  let raw = indexEndpoint
+    ? await fmpRequest<unknown[]>(indexEndpoint, {}, 86400, fmpRecordArraySchema)
+    : etfSymbol
+      ? await fmpRequest<unknown[]>("etf/holdings", { symbol: etfSymbol }, 86400, fmpRecordArraySchema)
+      : null;
+  let effectiveSource = source;
+
+  if ((!raw || asArray(raw).length === 0) && etfSymbol) {
+    const fallbackEndpoint = ETF_FALLBACK_ENDPOINTS[universeId];
+    if (fallbackEndpoint) {
+      raw = await fmpRequest<unknown[]>(fallbackEndpoint, {}, 86400, fmpRecordArraySchema);
+      effectiveSource = `${fallbackEndpoint}:fallback`;
+    }
+  }
+
+  const members = asArray(raw)
+    .map((item, index) => normalizeUniverseMember(item, index + 1, effectiveSource))
+    .filter((member): member is FmpUniverseMember => Boolean(member));
+
+  return Array.from(new Map(members.map((member) => [member.symbol, member])).values());
 }
 
 export async function getFmpResearchSnapshot(symbol: string): Promise<ResearchSnapshot> {

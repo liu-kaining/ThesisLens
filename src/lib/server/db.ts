@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "crypto";
 import { Pool } from "pg";
-import type { ResearchMemo } from "@/lib/types";
+import { SYSTEM_UNIVERSES, type SystemUniverseId } from "@/lib/universes";
+import type { EnrichedResearch, ResearchMemo } from "@/lib/types";
 
 const DEMO_USER_ID = "demo-user";
 const DEMO_WATCHLIST_ID = "demo-watchlist";
@@ -61,6 +62,55 @@ export type AccessCodeRecord = {
 
 export type AccessCodePublicRecord = Omit<AccessCodeRecord, "codeHash"> & {
   active: boolean;
+};
+
+export type PersistedResearchSnapshotRecord = {
+  symbol: string;
+  research: EnrichedResearch;
+  dataMode: string;
+  completenessScore: number;
+  refreshedAt: string;
+  savedAt: string;
+};
+
+export type SystemUniverseRecord = {
+  id: SystemUniverseId;
+  name: string;
+  description: string;
+  sourceType: "index_constituents" | "etf_holdings";
+  sourceSymbol?: string | null;
+  priority: number;
+  memberCount: number;
+  activeCount: number;
+  refreshedAt?: string | null;
+  updatedAt: string;
+};
+
+export type SystemUniverseMemberRecord = {
+  id: string;
+  universeId: SystemUniverseId;
+  symbol: string;
+  name?: string | null;
+  sector?: string | null;
+  industry?: string | null;
+  weight?: number | null;
+  rank?: number | null;
+  source?: string | null;
+  active: boolean;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  removedAt?: string | null;
+};
+
+export type SystemUniverseMemberInput = {
+  symbol: string;
+  name?: string;
+  sector?: string;
+  industry?: string;
+  weight?: number | null;
+  rank?: number | null;
+  source?: string;
+  raw?: Record<string, unknown>;
 };
 
 const memoryWatchlist = new Map<string, WatchlistItemRecord>([
@@ -181,6 +231,9 @@ const memoryAlerts = new Map<string, AlertRuleRecord>([
 ]);
 
 const memoryAccessCodes = new Map<string, AccessCodeRecord>();
+const memoryResearchSnapshots = new Map<string, PersistedResearchSnapshotRecord>();
+const memorySystemUniverses = new Map<SystemUniverseId, SystemUniverseRecord>();
+const memorySystemUniverseMembers = new Map<SystemUniverseId, Map<string, SystemUniverseMemberRecord>>();
 
 function hashAccessCode(code: string) {
   return createHash("sha256").update(code.trim()).digest("hex");
@@ -199,6 +252,82 @@ function publicAccessCode(record: AccessCodeRecord): AccessCodePublicRecord {
     expiresAt: record.expiresAt,
     revokedAt: record.revokedAt ?? null,
     active
+  };
+}
+
+function parseJsonValue<T>(value: unknown): T {
+  return typeof value === "string" ? (JSON.parse(value) as T) : (value as T);
+}
+
+function researchCompletenessScore(research: EnrichedResearch) {
+  const modules = research.snapshot.dataStatus.modules ?? [];
+  const liveModules = modules.filter((module) => module.status === "live").length;
+  const populatedCollections = [
+    research.snapshot.financials,
+    research.snapshot.metrics,
+    research.snapshot.analystEstimates,
+    research.snapshot.news,
+    research.snapshot.filings,
+    research.snapshot.insiders,
+    research.snapshot.congress,
+    research.snapshot.technicals,
+    research.snapshot.peers,
+    research.snapshot.upcomingEvents,
+    research.evidence,
+    research.signals,
+    research.scores
+  ].filter((collection) => collection.length > 0).length;
+
+  return liveModules * 10 + populatedCollections;
+}
+
+function ensureMemorySystemUniverseDefinitions() {
+  const now = new Date().toISOString();
+  for (const definition of SYSTEM_UNIVERSES) {
+    const existing = memorySystemUniverses.get(definition.id);
+    if (!existing) {
+      memorySystemUniverses.set(definition.id, {
+        id: definition.id,
+        name: definition.name,
+        description: definition.description,
+        sourceType: definition.sourceType,
+        sourceSymbol: definition.sourceSymbol ?? null,
+        priority: definition.priority,
+        memberCount: 0,
+        activeCount: 0,
+        refreshedAt: null,
+        updatedAt: now
+      });
+    }
+  }
+}
+
+function normalizeUniverseSymbol(symbol: string) {
+  return symbol.trim().toUpperCase();
+}
+
+function publicUniverseMember(
+  universeId: SystemUniverseId,
+  input: SystemUniverseMemberInput,
+  now: string,
+  existing?: SystemUniverseMemberRecord
+): SystemUniverseMemberRecord {
+  const symbol = normalizeUniverseSymbol(input.symbol);
+
+  return {
+    id: `${universeId}-${symbol}`,
+    universeId,
+    symbol,
+    name: input.name?.trim() || null,
+    sector: input.sector?.trim() || null,
+    industry: input.industry?.trim() || null,
+    weight: input.weight ?? null,
+    rank: input.rank ?? null,
+    source: input.source ?? null,
+    active: true,
+    firstSeenAt: existing?.firstSeenAt ?? now,
+    lastSeenAt: now,
+    removedAt: null
   };
 }
 
@@ -451,6 +580,43 @@ async function ensureSchema() {
           computed_at TIMESTAMPTZ NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS system_universes (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT,
+          source_type TEXT NOT NULL,
+          source_symbol TEXT,
+          priority INTEGER NOT NULL DEFAULT 100,
+          member_count INTEGER NOT NULL DEFAULT 0,
+          active_count INTEGER NOT NULL DEFAULT 0,
+          refreshed_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS system_universe_members (
+          id TEXT PRIMARY KEY,
+          universe_id TEXT NOT NULL REFERENCES system_universes(id) ON DELETE CASCADE,
+          symbol TEXT NOT NULL,
+          name TEXT,
+          sector TEXT,
+          industry TEXT,
+          weight NUMERIC,
+          rank INTEGER,
+          source TEXT,
+          active BOOLEAN NOT NULL DEFAULT TRUE,
+          first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          removed_at TIMESTAMPTZ,
+          raw_json JSONB,
+          UNIQUE (universe_id, symbol)
+        );
+
+        CREATE INDEX IF NOT EXISTS system_universe_members_universe_active_rank_idx
+          ON system_universe_members (universe_id, active, rank);
+        CREATE INDEX IF NOT EXISTS system_universe_members_symbol_idx
+          ON system_universe_members (symbol);
+
         CREATE TABLE IF NOT EXISTS watchlists (
           id TEXT PRIMARY KEY,
           user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -516,6 +682,20 @@ async function ensureSchema() {
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
 
+        CREATE TABLE IF NOT EXISTS company_research_snapshots (
+          id TEXT PRIMARY KEY,
+          symbol TEXT NOT NULL UNIQUE,
+          research_json JSONB NOT NULL,
+          data_mode TEXT NOT NULL,
+          completeness_score INTEGER NOT NULL DEFAULT 0,
+          refreshed_at TIMESTAMPTZ NOT NULL,
+          saved_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE INDEX IF NOT EXISTS company_research_snapshots_symbol_refreshed_idx
+          ON company_research_snapshots (symbol, refreshed_at DESC);
+
         CREATE TABLE IF NOT EXISTS access_codes (
           id TEXT PRIMARY KEY,
           code_hash TEXT NOT NULL UNIQUE,
@@ -545,6 +725,30 @@ async function ensureSchema() {
         `,
         [DEMO_WATCHLIST_ID, DEMO_USER_ID, "Core Research"]
       );
+      for (const universe of SYSTEM_UNIVERSES) {
+        await pg.query(
+          `
+          INSERT INTO system_universes (id, name, description, source_type, source_symbol, priority)
+          VALUES ($1, $2, $3, $4, $5, $6)
+          ON CONFLICT (id)
+          DO UPDATE SET
+            name = EXCLUDED.name,
+            description = EXCLUDED.description,
+            source_type = EXCLUDED.source_type,
+            source_symbol = EXCLUDED.source_symbol,
+            priority = EXCLUDED.priority,
+            updated_at = NOW()
+          `,
+          [
+            universe.id,
+            universe.name,
+            universe.description,
+            universe.sourceType,
+            universe.sourceSymbol ?? null,
+            universe.priority
+          ]
+        );
+      }
       for (const thesis of memoryTheses.values()) {
         await pg.query(
           `
@@ -768,6 +972,417 @@ export async function saveResearchMemo(memo: ResearchMemo) {
     );
   } catch {
     // Persistence should never block research rendering.
+  }
+}
+
+export async function saveCompanyResearchSnapshot(
+  research: EnrichedResearch
+): Promise<PersistedResearchSnapshotRecord> {
+  const symbol = research.snapshot.profile.symbol.trim().toUpperCase();
+  const now = new Date().toISOString();
+  const refreshedAt = research.snapshot.dataStatus.refreshedAt || now;
+  const record: PersistedResearchSnapshotRecord = {
+    symbol,
+    research,
+    dataMode: research.snapshot.dataStatus.mode,
+    completenessScore: researchCompletenessScore(research),
+    refreshedAt,
+    savedAt: now
+  };
+  const ready = await ensureSchema();
+  const pg = ready ? getPool() : null;
+
+  if (!pg) {
+    memoryResearchSnapshots.set(symbol, record);
+    return record;
+  }
+
+  try {
+    const rows = await pg.query<{ saved_at: Date }>(
+      `
+      INSERT INTO company_research_snapshots
+        (id, symbol, research_json, data_mode, completeness_score, refreshed_at)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      ON CONFLICT (symbol)
+      DO UPDATE SET
+        research_json = EXCLUDED.research_json,
+        data_mode = EXCLUDED.data_mode,
+        completeness_score = EXCLUDED.completeness_score,
+        refreshed_at = EXCLUDED.refreshed_at,
+        saved_at = NOW(),
+        updated_at = NOW()
+      RETURNING saved_at
+      `,
+      [
+        `company-research-${symbol}`,
+        symbol,
+        JSON.stringify(research),
+        record.dataMode,
+        record.completenessScore,
+        refreshedAt
+      ]
+    );
+    return {
+      ...record,
+      savedAt: rows.rows[0]?.saved_at?.toISOString() ?? now
+    };
+  } catch {
+    memoryResearchSnapshots.set(symbol, record);
+    return record;
+  }
+}
+
+export async function getCompanyResearchSnapshot(
+  symbol: string
+): Promise<PersistedResearchSnapshotRecord | null> {
+  const normalized = symbol.trim().toUpperCase();
+  const ready = await ensureSchema();
+  const pg = ready ? getPool() : null;
+
+  if (!pg) {
+    return memoryResearchSnapshots.get(normalized) ?? null;
+  }
+
+  try {
+    const rows = await pg.query<{
+      symbol: string;
+      research_json: unknown;
+      data_mode: string;
+      completeness_score: number;
+      refreshed_at: Date;
+      saved_at: Date;
+    }>(
+      `
+      SELECT symbol, research_json, data_mode, completeness_score, refreshed_at, saved_at
+      FROM company_research_snapshots
+      WHERE symbol = $1
+      LIMIT 1
+      `,
+      [normalized]
+    );
+    const row = rows.rows[0];
+    if (!row) return null;
+
+    return {
+      symbol: row.symbol,
+      research: parseJsonValue<EnrichedResearch>(row.research_json),
+      dataMode: row.data_mode,
+      completenessScore: Number(row.completeness_score),
+      refreshedAt: row.refreshed_at.toISOString(),
+      savedAt: row.saved_at.toISOString()
+    };
+  } catch {
+    return memoryResearchSnapshots.get(normalized) ?? null;
+  }
+}
+
+export async function getCompanyResearchSnapshotStats() {
+  const ready = await ensureSchema();
+  const pg = ready ? getPool() : null;
+
+  if (!pg) {
+    return {
+      count: memoryResearchSnapshots.size,
+      latestSavedAt: Array.from(memoryResearchSnapshots.values()).sort((a, b) =>
+        b.savedAt.localeCompare(a.savedAt)
+      )[0]?.savedAt
+    };
+  }
+
+  try {
+    const rows = await pg.query<{
+      count: string;
+      latest_saved_at: Date | null;
+    }>(
+      `
+      SELECT COUNT(*)::TEXT AS count, MAX(saved_at) AS latest_saved_at
+      FROM company_research_snapshots
+      `
+    );
+    const row = rows.rows[0];
+    return {
+      count: Number(row?.count ?? 0),
+      latestSavedAt: row?.latest_saved_at?.toISOString()
+    };
+  } catch {
+    return {
+      count: memoryResearchSnapshots.size,
+      latestSavedAt: undefined
+    };
+  }
+}
+
+export async function getSystemUniverses(): Promise<SystemUniverseRecord[]> {
+  ensureMemorySystemUniverseDefinitions();
+  const ready = await ensureSchema();
+  const pg = ready ? getPool() : null;
+
+  if (!pg) {
+    return Array.from(memorySystemUniverses.values()).sort((a, b) => a.priority - b.priority);
+  }
+
+  try {
+    const rows = await pg.query<{
+      id: SystemUniverseId;
+      name: string;
+      description: string | null;
+      source_type: SystemUniverseRecord["sourceType"];
+      source_symbol: string | null;
+      priority: number;
+      member_count: number;
+      active_count: number;
+      refreshed_at: Date | null;
+      updated_at: Date;
+    }>(
+      `
+      SELECT id, name, description, source_type, source_symbol, priority,
+        member_count, active_count, refreshed_at, updated_at
+      FROM system_universes
+      ORDER BY priority ASC, name ASC
+      `
+    );
+
+    return rows.rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      description: row.description ?? "",
+      sourceType: row.source_type,
+      sourceSymbol: row.source_symbol,
+      priority: Number(row.priority),
+      memberCount: Number(row.member_count),
+      activeCount: Number(row.active_count),
+      refreshedAt: row.refreshed_at?.toISOString() ?? null,
+      updatedAt: row.updated_at.toISOString()
+    }));
+  } catch {
+    return Array.from(memorySystemUniverses.values()).sort((a, b) => a.priority - b.priority);
+  }
+}
+
+export async function getSystemUniverseMembers(
+  universeId: SystemUniverseId,
+  limit = 100,
+  offset = 0
+): Promise<SystemUniverseMemberRecord[]> {
+  ensureMemorySystemUniverseDefinitions();
+  const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
+  const safeOffset = Math.max(0, Math.floor(offset));
+  const ready = await ensureSchema();
+  const pg = ready ? getPool() : null;
+
+  if (!pg) {
+    return Array.from(memorySystemUniverseMembers.get(universeId)?.values() ?? [])
+      .filter((member) => member.active)
+      .sort((a, b) => (a.rank ?? 999999) - (b.rank ?? 999999) || a.symbol.localeCompare(b.symbol))
+      .slice(safeOffset, safeOffset + safeLimit);
+  }
+
+  try {
+    const rows = await pg.query<{
+      id: string;
+      universe_id: SystemUniverseId;
+      symbol: string;
+      name: string | null;
+      sector: string | null;
+      industry: string | null;
+      weight: string | null;
+      rank: number | null;
+      source: string | null;
+      active: boolean;
+      first_seen_at: Date;
+      last_seen_at: Date;
+      removed_at: Date | null;
+    }>(
+      `
+      SELECT id, universe_id, symbol, name, sector, industry, weight, rank, source,
+        active, first_seen_at, last_seen_at, removed_at
+      FROM system_universe_members
+      WHERE universe_id = $1 AND active = TRUE
+      ORDER BY COALESCE(rank, 999999) ASC, symbol ASC
+      LIMIT $2 OFFSET $3
+      `,
+      [universeId, safeLimit, safeOffset]
+    );
+
+    return rows.rows.map((row) => ({
+      id: row.id,
+      universeId: row.universe_id,
+      symbol: row.symbol,
+      name: row.name,
+      sector: row.sector,
+      industry: row.industry,
+      weight: row.weight === null ? null : Number(row.weight),
+      rank: row.rank,
+      source: row.source,
+      active: row.active,
+      firstSeenAt: row.first_seen_at.toISOString(),
+      lastSeenAt: row.last_seen_at.toISOString(),
+      removedAt: row.removed_at?.toISOString() ?? null
+    }));
+  } catch {
+    return Array.from(memorySystemUniverseMembers.get(universeId)?.values() ?? [])
+      .filter((member) => member.active)
+      .sort((a, b) => (a.rank ?? 999999) - (b.rank ?? 999999) || a.symbol.localeCompare(b.symbol))
+      .slice(safeOffset, safeOffset + safeLimit);
+  }
+}
+
+export async function syncSystemUniverseMembers(
+  universeId: SystemUniverseId,
+  members: SystemUniverseMemberInput[]
+): Promise<SystemUniverseRecord> {
+  ensureMemorySystemUniverseDefinitions();
+  const definition = SYSTEM_UNIVERSES.find((universe) => universe.id === universeId);
+  if (!definition) throw new Error(`Unknown system universe: ${universeId}`);
+
+  const now = new Date().toISOString();
+  const deduped = Array.from(
+    new Map(
+      members
+        .map((member) => ({ ...member, symbol: normalizeUniverseSymbol(member.symbol) }))
+        .filter((member) => member.symbol && !member.symbol.includes("."))
+        .map((member) => [member.symbol, member])
+    ).values()
+  );
+  const ready = await ensureSchema();
+  const pg = ready ? getPool() : null;
+
+  if (!pg) {
+    const existingMembers = memorySystemUniverseMembers.get(universeId) ?? new Map<string, SystemUniverseMemberRecord>();
+    const activeSymbols = new Set(deduped.map((member) => member.symbol));
+    for (const [symbol, member] of existingMembers.entries()) {
+      if (!activeSymbols.has(symbol) && member.active) {
+        existingMembers.set(symbol, { ...member, active: false, removedAt: now });
+      }
+    }
+    for (const member of deduped) {
+      existingMembers.set(member.symbol, publicUniverseMember(universeId, member, now, existingMembers.get(member.symbol)));
+    }
+    memorySystemUniverseMembers.set(universeId, existingMembers);
+    const universe: SystemUniverseRecord = {
+      id: definition.id,
+      name: definition.name,
+      description: definition.description,
+      sourceType: definition.sourceType,
+      sourceSymbol: definition.sourceSymbol ?? null,
+      priority: definition.priority,
+      memberCount: existingMembers.size,
+      activeCount: deduped.length,
+      refreshedAt: now,
+      updatedAt: now
+    };
+    memorySystemUniverses.set(universeId, universe);
+    return universe;
+  }
+
+  const client = await pg.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `
+      INSERT INTO system_universes (id, name, description, source_type, source_symbol, priority, refreshed_at)
+      VALUES ($1, $2, $3, $4, $5, $6, NOW())
+      ON CONFLICT (id)
+      DO UPDATE SET
+        name = EXCLUDED.name,
+        description = EXCLUDED.description,
+        source_type = EXCLUDED.source_type,
+        source_symbol = EXCLUDED.source_symbol,
+        priority = EXCLUDED.priority,
+        refreshed_at = NOW(),
+        updated_at = NOW()
+      `,
+      [
+        definition.id,
+        definition.name,
+        definition.description,
+        definition.sourceType,
+        definition.sourceSymbol ?? null,
+        definition.priority
+      ]
+    );
+    await client.query(
+      `
+      UPDATE system_universe_members
+      SET active = FALSE, removed_at = NOW()
+      WHERE universe_id = $1 AND active = TRUE
+      `,
+      [universeId]
+    );
+
+    for (const member of deduped) {
+      await client.query(
+        `
+        INSERT INTO system_universe_members
+          (id, universe_id, symbol, name, sector, industry, weight, rank, source, active,
+           first_seen_at, last_seen_at, removed_at, raw_json)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, NOW(), NOW(), NULL, $10)
+        ON CONFLICT (universe_id, symbol)
+        DO UPDATE SET
+          name = EXCLUDED.name,
+          sector = EXCLUDED.sector,
+          industry = EXCLUDED.industry,
+          weight = EXCLUDED.weight,
+          rank = EXCLUDED.rank,
+          source = EXCLUDED.source,
+          active = TRUE,
+          last_seen_at = NOW(),
+          removed_at = NULL,
+          raw_json = EXCLUDED.raw_json
+        `,
+        [
+          `${universeId}-${member.symbol}`,
+          universeId,
+          member.symbol,
+          member.name?.trim() || null,
+          member.sector?.trim() || null,
+          member.industry?.trim() || null,
+          member.weight ?? null,
+          member.rank ?? null,
+          member.source ?? null,
+          member.raw ? JSON.stringify(member.raw) : null
+        ]
+      );
+    }
+
+    const counts = await client.query<{ member_count: number; active_count: number }>(
+      `
+      SELECT COUNT(*)::INTEGER AS member_count,
+        COUNT(*) FILTER (WHERE active = TRUE)::INTEGER AS active_count
+      FROM system_universe_members
+      WHERE universe_id = $1
+      `,
+      [universeId]
+    );
+    const memberCount = Number(counts.rows[0]?.member_count ?? deduped.length);
+    const activeCount = Number(counts.rows[0]?.active_count ?? deduped.length);
+    await client.query(
+      `
+      UPDATE system_universes
+      SET member_count = $2, active_count = $3, refreshed_at = NOW(), updated_at = NOW()
+      WHERE id = $1
+      `,
+      [universeId, memberCount, activeCount]
+    );
+    await client.query("COMMIT");
+
+    return {
+      id: definition.id,
+      name: definition.name,
+      description: definition.description,
+      sourceType: definition.sourceType,
+      sourceSymbol: definition.sourceSymbol ?? null,
+      priority: definition.priority,
+      memberCount,
+      activeCount,
+      refreshedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
   }
 }
 

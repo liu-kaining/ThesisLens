@@ -357,10 +357,14 @@ export type EnrichedResearch = {
 export type DashboardModel = {
   generatedAt: string;
   universe: {
-    source: "watchlist";
+    id: "watchlist" | "custom" | "sp500" | "nasdaq" | "dowjones" | "spy_holdings" | "qqq_holdings";
+    source: "watchlist" | "system" | "custom";
+    name: string;
     symbols: string[];
     count: number;
+    totalCount: number;
     isEmpty: boolean;
+    isTruncated: boolean;
   };
   marketPulse: Array<{
     label: string;

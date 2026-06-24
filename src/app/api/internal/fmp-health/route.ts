@@ -25,11 +25,13 @@ export async function GET() {
         "news and press releases",
         "SEC filings",
         "insider trading",
-        "senate and house trading"
+        "senate and house trading",
+        "index constituents",
+        "ETF holdings"
       ],
       gatedOrNeedsValidation: [
         "13F institutional holdings",
-        "ETF and mutual fund holdings",
+        "mutual fund holdings",
         "earnings call transcripts",
         "1-minute intraday",
         "bulk and batch endpoints"

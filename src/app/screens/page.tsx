@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { AppNav } from "@/components/app-nav";
+import { UniverseSelector } from "@/components/universe-selector";
 import { formatCurrency, formatPercent } from "@/lib/format";
 import { directionLabel } from "@/lib/labels";
 import { getResearchScreens } from "@/lib/server/screens";
+import type { ResearchUniverse } from "@/lib/server/universe";
 import type { Direction } from "@/lib/types";
 
 const directionClass: Record<Direction, string> = {
@@ -12,8 +14,13 @@ const directionClass: Record<Direction, string> = {
   mixed: "border-amber bg-[#fff7e8] text-amber"
 };
 
-export default async function ScreensPage() {
-  const model = await getResearchScreens();
+type ScreensPageProps = {
+  searchParams: Promise<{ universe?: string }>;
+};
+
+export default async function ScreensPage({ searchParams }: ScreensPageProps) {
+  const params = await searchParams;
+  const model = await getResearchScreens(params.universe);
   const hasResults = model.screens.some((screen) => screen.results.length > 0);
 
   return (
@@ -26,13 +33,15 @@ export default async function ScreensPage() {
             不只筛因子，还要筛解释。
           </h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-muted">
-            每个选股器都只扫描观察列表中的研究宇宙。当前覆盖 {model.universe.count} 家公司，
+            每个选股器都扫描你当前选择的研究范围。当前分析 {model.universe.count} 家公司，
             用 ThesisLens 分数和证据信号找出值得继续研究的问题。
           </p>
         </section>
 
+        <UniverseSelector basePath="/screens" universe={model.universe} />
+
         {model.universe.isEmpty ? (
-          <EmptyUniverse />
+          <EmptyUniverse universe={model.universe} />
         ) : null}
 
         <div className="grid gap-6">
@@ -105,7 +114,7 @@ export default async function ScreensPage() {
                 </div>
               ) : (
                 <div className="mt-4 rounded-md border border-dashed border-line bg-canvas p-4 text-sm leading-6 text-muted">
-                  当前观察列表里没有符合这个筛选器的标的。
+                  当前研究范围里没有符合这个筛选器的标的。
                 </div>
               )}
             </section>
@@ -114,7 +123,7 @@ export default async function ScreensPage() {
 
         {!model.universe.isEmpty && !hasResults ? (
           <p className="text-sm leading-6 text-muted">
-            观察列表已有标的，但暂时没有命中高质量或预期动量等筛选条件；可以进入公司页查看原始数据。
+            当前研究范围已有标的，但暂时没有命中高质量或预期动量等筛选条件；可以进入公司页查看原始数据。
           </p>
         ) : null}
       </div>
@@ -122,18 +131,22 @@ export default async function ScreensPage() {
   );
 }
 
-function EmptyUniverse() {
+function EmptyUniverse({ universe }: { universe: ResearchUniverse }) {
+  const isWatchlist = universe.source === "watchlist";
+
   return (
     <section className="rounded-md border border-dashed border-line bg-white p-5 shadow-sm">
       <h2 className="text-sm font-semibold text-ink">研究宇宙为空</h2>
       <p className="mt-2 text-sm leading-6 text-muted">
-        先在观察列表中加入股票代码，选股器会自动基于这些标的重新计算。
+        {isWatchlist
+          ? "先在观察列表中加入股票代码，选股器会自动基于这些标的重新计算。"
+          : "这个系统研究池尚未同步成员，后台 worker 完成同步后即可使用。"}
       </p>
       <Link
-        href="/watchlist"
+        href={isWatchlist ? "/watchlist" : "/universes"}
         className="mt-4 inline-flex h-10 items-center rounded-md bg-ink px-4 text-sm font-semibold text-white transition hover:bg-steel"
       >
-        打开观察列表
+        {isWatchlist ? "打开观察列表" : "查看研究池"}
       </Link>
     </section>
   );

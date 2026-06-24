@@ -217,6 +217,43 @@ CREATE TABLE IF NOT EXISTS company_scores (
   computed_at TIMESTAMPTZ NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS system_universes (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  source_type TEXT NOT NULL,
+  source_symbol TEXT,
+  priority INTEGER NOT NULL DEFAULT 100,
+  member_count INTEGER NOT NULL DEFAULT 0,
+  active_count INTEGER NOT NULL DEFAULT 0,
+  refreshed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS system_universe_members (
+  id TEXT PRIMARY KEY,
+  universe_id TEXT NOT NULL REFERENCES system_universes(id) ON DELETE CASCADE,
+  symbol TEXT NOT NULL,
+  name TEXT,
+  sector TEXT,
+  industry TEXT,
+  weight NUMERIC,
+  rank INTEGER,
+  source TEXT,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  first_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  removed_at TIMESTAMPTZ,
+  raw_json JSONB,
+  UNIQUE (universe_id, symbol)
+);
+
+CREATE INDEX IF NOT EXISTS system_universe_members_universe_active_rank_idx
+  ON system_universe_members (universe_id, active, rank);
+CREATE INDEX IF NOT EXISTS system_universe_members_symbol_idx
+  ON system_universe_members (symbol);
+
 CREATE TABLE IF NOT EXISTS watchlists (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -282,6 +319,20 @@ CREATE TABLE IF NOT EXISTS research_memos (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS company_research_snapshots (
+  id TEXT PRIMARY KEY,
+  symbol TEXT NOT NULL UNIQUE,
+  research_json JSONB NOT NULL,
+  data_mode TEXT NOT NULL,
+  completeness_score INTEGER NOT NULL DEFAULT 0,
+  refreshed_at TIMESTAMPTZ NOT NULL,
+  saved_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS company_research_snapshots_symbol_refreshed_idx
+  ON company_research_snapshots (symbol, refreshed_at DESC);
+
 CREATE TABLE IF NOT EXISTS access_codes (
   id TEXT PRIMARY KEY,
   code_hash TEXT NOT NULL UNIQUE,
@@ -302,12 +353,21 @@ INSERT INTO watchlists (id, user_id, name)
 VALUES ('demo-watchlist', 'demo-user', 'Core Research')
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO watchlist_items (id, watchlist_id, symbol, notes)
+INSERT INTO system_universes (id, name, description, source_type, source_symbol, priority)
 VALUES
-  ('demo-watchlist-aapl', 'demo-watchlist', 'AAPL', 'Quality and capital return anchor.'),
-  ('demo-watchlist-msft', 'demo-watchlist', 'MSFT', 'AI/cloud estimate revision monitor.'),
-  ('demo-watchlist-nvda', 'demo-watchlist', 'NVDA', 'Exceptional growth with valuation sensitivity.')
-ON CONFLICT (watchlist_id, symbol) DO NOTHING;
+  ('sp500', 'S&P 500', 'FMP S&P 500 成分股，用作美股大盘核心研究池。', 'index_constituents', NULL, 10),
+  ('qqq_holdings', 'QQQ 持仓', 'Invesco QQQ 持仓，用作 Nasdaq 100 投资权重池近似。', 'etf_holdings', 'QQQ', 20),
+  ('spy_holdings', 'SPY 持仓', 'SPDR S&P 500 ETF 持仓，用作标普权重池近似。', 'etf_holdings', 'SPY', 30),
+  ('dowjones', '道琼斯工业指数', 'FMP Dow Jones 成分股，用作蓝筹核心池。', 'index_constituents', NULL, 40),
+  ('nasdaq', 'Nasdaq 成分股', 'FMP Nasdaq 成分列表，用作 Nasdaq 广义研究池。', 'index_constituents', NULL, 50)
+ON CONFLICT (id)
+DO UPDATE SET
+  name = EXCLUDED.name,
+  description = EXCLUDED.description,
+  source_type = EXCLUDED.source_type,
+  source_symbol = EXCLUDED.source_symbol,
+  priority = EXCLUDED.priority,
+  updated_at = NOW();
 
 INSERT INTO saved_theses (id, user_id, symbol, title, thesis_text, status)
 VALUES

@@ -56,8 +56,8 @@ function resultFromResearch(
   };
 }
 
-export async function getResearchScreens(): Promise<ResearchScreensModel> {
-  const universe = await getResearchUniverse();
+export async function getResearchScreens(universeId?: string | null): Promise<ResearchScreensModel> {
+  const universe = await getResearchUniverse({ id: universeId });
   const models = await Promise.all(universe.symbols.map((symbol) => getCompanyResearch(symbol)));
 
   const highQuality = models

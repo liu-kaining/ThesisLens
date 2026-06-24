@@ -66,6 +66,26 @@ const checks = [
     expect: ["\"items\""]
   },
   {
+    name: "universes page",
+    path: "/universes",
+    expect: ["系统研究池", "S&amp;P 500", "QQQ 持仓", "用于选股"]
+  },
+  {
+    name: "universes api",
+    path: "/api/universes",
+    expect: ["\"universes\"", "\"membersByUniverse\"", "\"sp500\"", "\"qqq_holdings\""]
+  },
+  {
+    name: "paginated universe page",
+    path: "/universes?universe=sp500&page=2",
+    expect: ["S&amp;P 500", "显示 <!-- -->51", "<!-- -->100", "研究池分页"]
+  },
+  {
+    name: "paginated universe api",
+    path: "/api/universes?universe=sp500&page=2&pageSize=50",
+    expect: ["\"selectedUniverse\"", "\"pagination\"", "\"page\":2", "\"pageSize\":50"]
+  },
+  {
     name: "screens api",
     path: "/api/screens",
     expect: ["\"screens\"", "高质量公司"]

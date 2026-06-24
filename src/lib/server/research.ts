@@ -1,10 +1,15 @@
 import { buildResearchMemo } from "@/lib/research-memo";
 import { deleteCache, getJsonCache, setJsonCache } from "@/lib/server/cache";
-import { saveResearchMemo } from "@/lib/server/db";
+import {
+  getCompanyResearchSnapshot,
+  saveCompanyResearchSnapshot,
+  saveResearchMemo,
+  type PersistedResearchSnapshotRecord
+} from "@/lib/server/db";
 import { getFmpResearchSnapshot, searchFmpSymbols } from "@/lib/server/fmp";
 import { getResearchUniverse } from "@/lib/server/universe";
 import { buildEvidence, computeScores, computeSignals } from "@/lib/signals";
-import type { DashboardModel, Direction, EnrichedResearch } from "@/lib/types";
+import type { DashboardModel, Direction, EnrichedResearch, ResearchSnapshot } from "@/lib/types";
 
 const snapshotCache = new Map<string, { expiresAt: number; value: EnrichedResearch }>();
 const FIVE_MINUTES = 5 * 60 * 1000;
@@ -12,6 +17,53 @@ const RESEARCH_CACHE_SECONDS = 5 * 60;
 
 export async function getSearchResults(query: string) {
   return searchFmpSymbols(query);
+}
+
+async function buildEnrichedResearch(snapshot: ResearchSnapshot): Promise<EnrichedResearch> {
+  const evidence = buildEvidence(snapshot);
+  const scores = computeScores(snapshot, evidence);
+  const signals = computeSignals(snapshot, scores, evidence);
+  const memo = await buildResearchMemo(snapshot, scores, signals, evidence);
+
+  return { snapshot, evidence, scores, signals, memo };
+}
+
+function hasPersistableFmpData(snapshot: ResearchSnapshot) {
+  if (snapshot.dataStatus.mode === "mock") return false;
+
+  const modules = snapshot.dataStatus.modules ?? [];
+  const liveModules = modules.filter((module) => module.status === "live").length;
+  const companyQuoteIsLive = modules.some(
+    (module) => module.key === "company_quote" && module.status === "live"
+  );
+
+  return companyQuoteIsLive || liveModules >= 2;
+}
+
+function withPersistedSnapshotWarning(record: PersistedResearchSnapshotRecord): EnrichedResearch {
+  const warning = `FMP 当前刷新不可用，正在显示本地持久化快照；快照刷新时间 ${new Date(
+    record.refreshedAt
+  ).toLocaleString("zh-CN", { hour12: false })}。`;
+
+  return {
+    ...record.research,
+    snapshot: {
+      ...record.research.snapshot,
+      dataStatus: {
+        ...record.research.snapshot.dataStatus,
+        mode: "mixed",
+        warnings: [warning, ...record.research.snapshot.dataStatus.warnings.filter((item) => item !== warning)]
+      }
+    }
+  };
+}
+
+async function persistResearchIfUseful(research: EnrichedResearch) {
+  if (!hasPersistableFmpData(research.snapshot)) return false;
+
+  await saveResearchMemo(research.memo);
+  await saveCompanyResearchSnapshot(research);
+  return true;
 }
 
 export async function getCompanyResearch(symbol: string): Promise<EnrichedResearch> {
@@ -31,19 +83,33 @@ export async function getCompanyResearch(symbol: string): Promise<EnrichedResear
     return distributedCached;
   }
 
-  const snapshot = await getFmpResearchSnapshot(normalized);
-  const evidence = buildEvidence(snapshot);
-  const scores = computeScores(snapshot, evidence);
-  const signals = computeSignals(snapshot, scores, evidence);
-  const memo = await buildResearchMemo(snapshot, scores, signals, evidence);
-  await saveResearchMemo(memo);
-  const value = { snapshot, evidence, scores, signals, memo };
+  let value: EnrichedResearch;
+  let cacheSeconds = RESEARCH_CACHE_SECONDS;
+
+  try {
+    const snapshot = await getFmpResearchSnapshot(normalized);
+    const freshResearch = await buildEnrichedResearch(snapshot);
+    const persisted = await persistResearchIfUseful(freshResearch);
+
+    if (persisted) {
+      value = freshResearch;
+    } else {
+      const stored = await getCompanyResearchSnapshot(normalized);
+      value = stored ? withPersistedSnapshotWarning(stored) : freshResearch;
+      cacheSeconds = stored ? 60 : RESEARCH_CACHE_SECONDS;
+    }
+  } catch (error) {
+    const stored = await getCompanyResearchSnapshot(normalized);
+    if (!stored) throw error;
+    value = withPersistedSnapshotWarning(stored);
+    cacheSeconds = 60;
+  }
 
   snapshotCache.set(normalized, {
-    expiresAt: Date.now() + FIVE_MINUTES,
+    expiresAt: Date.now() + cacheSeconds * 1000,
     value
   });
-  await setJsonCache(cacheKey, value, RESEARCH_CACHE_SECONDS);
+  await setJsonCache(cacheKey, value, cacheSeconds);
 
   return value;
 }
@@ -84,7 +150,7 @@ function researchIdeaFromModel({ snapshot, scores, signals }: EnrichedResearch) 
 }
 
 export async function getDashboardModel(): Promise<DashboardModel> {
-  const universe = await getResearchUniverse(8);
+  const universe = await getResearchUniverse({ limit: 8 });
   const research = await Promise.all(universe.symbols.map((symbol) => getCompanyResearch(symbol)));
 
   return {

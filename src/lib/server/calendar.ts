@@ -1,5 +1,9 @@
 import { getCompanyResearch } from "@/lib/server/research";
-import { getResearchUniverse, type ResearchUniverse } from "@/lib/server/universe";
+import {
+  getResearchUniverse,
+  researchUniverseFromSymbols,
+  type ResearchUniverse
+} from "@/lib/server/universe";
 import type { Severity } from "@/lib/types";
 
 export type CalendarEvent = {
@@ -19,26 +23,13 @@ export type CalendarModel = {
   events: CalendarEvent[];
 };
 
-function universeFromSymbols(symbols: string[]): ResearchUniverse {
-  const seen = new Set<string>();
-  const normalized = symbols
-    .map((symbol) => symbol.trim().toUpperCase())
-    .filter((symbol) => {
-      if (!symbol || seen.has(symbol)) return false;
-      seen.add(symbol);
-      return true;
-    });
-
-  return {
-    source: "watchlist",
-    symbols: normalized,
-    count: normalized.length,
-    isEmpty: normalized.length === 0
-  };
-}
-
-export async function getCalendarEvents(symbols?: string[]): Promise<CalendarModel> {
-  const universe = symbols ? universeFromSymbols(symbols) : await getResearchUniverse();
+export async function getCalendarEvents(
+  symbols?: string[],
+  universeId?: string | null
+): Promise<CalendarModel> {
+  const universe = symbols
+    ? researchUniverseFromSymbols(symbols)
+    : await getResearchUniverse({ id: universeId });
   const models = await Promise.all(universe.symbols.map((symbol) => getCompanyResearch(symbol)));
 
   const events: CalendarEvent[] = models

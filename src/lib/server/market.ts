@@ -1,5 +1,9 @@
 import { getCompanyResearch } from "@/lib/server/research";
-import { getResearchUniverse, type ResearchUniverse } from "@/lib/server/universe";
+import {
+  getResearchUniverse,
+  researchUniverseFromSymbols,
+  type ResearchUniverse
+} from "@/lib/server/universe";
 
 type MarketCompany = {
   symbol: string;
@@ -27,26 +31,13 @@ export type MarketModel = {
   }>;
 };
 
-function universeFromSymbols(symbols: string[]): ResearchUniverse {
-  const seen = new Set<string>();
-  const normalized = symbols
-    .map((symbol) => symbol.trim().toUpperCase())
-    .filter((symbol) => {
-      if (!symbol || seen.has(symbol)) return false;
-      seen.add(symbol);
-      return true;
-    });
-
-  return {
-    source: "watchlist",
-    symbols: normalized,
-    count: normalized.length,
-    isEmpty: normalized.length === 0
-  };
-}
-
-export async function getMarketModel(symbols?: string[]): Promise<MarketModel> {
-  const universe = symbols ? universeFromSymbols(symbols) : await getResearchUniverse();
+export async function getMarketModel(
+  symbols?: string[],
+  universeId?: string | null
+): Promise<MarketModel> {
+  const universe = symbols
+    ? researchUniverseFromSymbols(symbols)
+    : await getResearchUniverse({ id: universeId });
   const models = await Promise.all(universe.symbols.map((symbol) => getCompanyResearch(symbol)));
   const companies = models.map((model) => ({
     symbol: model.snapshot.profile.symbol,
