@@ -327,6 +327,22 @@ Company page should:
 - Trigger background refresh for stale modules.
 - Avoid blocking the whole page on slow endpoints.
 
+Current implementation:
+
+- PostgreSQL `company_research_snapshots` is the serving snapshot and outage fallback.
+- PostgreSQL `company_data_modules` stores freshness independently for profile, quote,
+  fundamentals, financial scores, valuation, expectations, news, SEC filings,
+  insider transactions, congressional transactions, technicals, peers, and calendar.
+- PostgreSQL `data_sync_jobs` is a durable priority queue with retry attempts,
+  exponential backoff, and stale-running-job recovery.
+- A normal page visit returns the persisted snapshot first and only enqueues expired
+  modules. A cold symbol loads profile and quote synchronously, then queues deeper data.
+- The worker prioritizes watchlist symbols, rotates through one system-universe batch
+  per cycle, groups claimed jobs by symbol, and merges refreshed modules into the
+  previous snapshot.
+- Failed module refreshes preserve the prior value and are presented as stale instead
+  of replacing objective data with examples.
+
 ### 5.3 API Rate and Bandwidth Control
 
 FMP Premium constraints:

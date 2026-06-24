@@ -1,4 +1,8 @@
 import { buildResearchMemo } from "@/lib/research-memo";
+import {
+  allDataModuleKeys,
+  type DataModuleKey
+} from "@/lib/data-modules";
 import { deleteCache, getJsonCache, setJsonCache } from "@/lib/server/cache";
 import {
   getCompanyResearchSnapshot,
@@ -7,6 +11,7 @@ import {
   type PersistedResearchSnapshotRecord
 } from "@/lib/server/db";
 import { getFmpResearchSnapshot, searchFmpSymbols } from "@/lib/server/fmp";
+import { enqueueDueDataSync } from "@/lib/server/sync-queue";
 import { getResearchUniverse } from "@/lib/server/universe";
 import { buildEvidence, computeScores, computeSignals } from "@/lib/signals";
 import type { DashboardModel, Direction, EnrichedResearch, ResearchSnapshot } from "@/lib/types";
@@ -34,7 +39,9 @@ function hasPersistableFmpData(snapshot: ResearchSnapshot) {
   const modules = snapshot.dataStatus.modules ?? [];
   const liveModules = modules.filter((module) => module.status === "live").length;
   const companyQuoteIsLive = modules.some(
-    (module) => module.key === "company_quote" && module.status === "live"
+    (module) =>
+      (module.key === "quote" || module.key === "profile") &&
+      module.status === "live"
   );
 
   return companyQuoteIsLive || liveModules >= 2;
@@ -83,26 +90,35 @@ export async function getCompanyResearch(symbol: string): Promise<EnrichedResear
     return distributedCached;
   }
 
+  const stored = await getCompanyResearchSnapshot(normalized);
+  if (stored) {
+    await enqueueDueDataSync([normalized], 100, "page_access");
+    snapshotCache.set(normalized, {
+      expiresAt: Date.now() + FIVE_MINUTES,
+      value: stored.research
+    });
+    await setJsonCache(cacheKey, stored.research, RESEARCH_CACHE_SECONDS);
+    return stored.research;
+  }
+
   let value: EnrichedResearch;
-  let cacheSeconds = RESEARCH_CACHE_SECONDS;
+  const cacheSeconds = RESEARCH_CACHE_SECONDS;
 
   try {
-    const snapshot = await getFmpResearchSnapshot(normalized);
+    const snapshot = await getFmpResearchSnapshot(normalized, {
+      modules: ["profile", "quote"]
+    });
     const freshResearch = await buildEnrichedResearch(snapshot);
     const persisted = await persistResearchIfUseful(freshResearch);
 
     if (persisted) {
       value = freshResearch;
+      await enqueueDueDataSync([normalized], 100, "cold_page_access");
     } else {
-      const stored = await getCompanyResearchSnapshot(normalized);
-      value = stored ? withPersistedSnapshotWarning(stored) : freshResearch;
-      cacheSeconds = stored ? 60 : RESEARCH_CACHE_SECONDS;
+      value = freshResearch;
     }
   } catch (error) {
-    const stored = await getCompanyResearchSnapshot(normalized);
-    if (!stored) throw error;
-    value = withPersistedSnapshotWarning(stored);
-    cacheSeconds = 60;
+    throw error;
   }
 
   snapshotCache.set(normalized, {
@@ -114,11 +130,32 @@ export async function getCompanyResearch(symbol: string): Promise<EnrichedResear
   return value;
 }
 
-export async function refreshCompanyResearch(symbol: string): Promise<EnrichedResearch> {
+export async function refreshCompanyResearch(
+  symbol: string,
+  modules: DataModuleKey[] = allDataModuleKeys()
+): Promise<EnrichedResearch> {
   const normalized = symbol.toUpperCase();
   snapshotCache.delete(normalized);
   await deleteCache(`research:${normalized}`);
-  return getCompanyResearch(normalized);
+  const stored = await getCompanyResearchSnapshot(normalized);
+  const effectiveModules = stored ? modules : allDataModuleKeys();
+  const snapshot = await getFmpResearchSnapshot(normalized, {
+    modules: effectiveModules,
+    baseSnapshot: stored?.research.snapshot
+  });
+  const research = await buildEnrichedResearch(snapshot);
+  const persisted = await persistResearchIfUseful(research);
+
+  if (!persisted && stored) {
+    return withPersistedSnapshotWarning(stored);
+  }
+
+  snapshotCache.set(normalized, {
+    expiresAt: Date.now() + FIVE_MINUTES,
+    value: research
+  });
+  await setJsonCache(`research:${normalized}`, research, RESEARCH_CACHE_SECONDS);
+  return research;
 }
 
 function averageCoreScore(scores: EnrichedResearch["scores"]) {

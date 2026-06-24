@@ -1,5 +1,6 @@
 export type Direction = "positive" | "negative" | "neutral" | "mixed";
 export type Severity = "low" | "medium" | "high";
+import type { DataModuleKey } from "@/lib/data-modules";
 
 export type CompanyProfile = {
   symbol: string;
@@ -338,10 +339,12 @@ export type ResearchSnapshot = {
     refreshedAt: string;
     warnings: string[];
     modules?: Array<{
-      key: string;
+      key: DataModuleKey;
       label: string;
-      status: "live" | "unavailable" | "mock";
+      status: "live" | "stale" | "unavailable" | "mock";
       detail: string;
+      refreshedAt?: string;
+      expiresAt?: string;
     }>;
   };
 };

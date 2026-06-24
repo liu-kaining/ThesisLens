@@ -1,5 +1,10 @@
 import { createHash, randomBytes, randomUUID } from "crypto";
 import { Pool } from "pg";
+import {
+  isDataModuleKey,
+  moduleExpiresAt,
+  type DataModuleKey
+} from "@/lib/data-modules";
 import { SYSTEM_UNIVERSES, type SystemUniverseId } from "@/lib/universes";
 import type { EnrichedResearch, ResearchMemo } from "@/lib/types";
 
@@ -111,6 +116,34 @@ export type SystemUniverseMemberInput = {
   rank?: number | null;
   source?: string;
   raw?: Record<string, unknown>;
+};
+
+export type CompanyDataModuleStateRecord = {
+  symbol: string;
+  moduleKey: DataModuleKey;
+  status: "live" | "stale" | "unavailable" | "mock";
+  refreshedAt?: string | null;
+  expiresAt?: string | null;
+  lastSuccessAt?: string | null;
+  lastError?: string | null;
+  attemptCount: number;
+  updatedAt: string;
+};
+
+export type DataSyncJobRecord = {
+  id: string;
+  symbol: string;
+  moduleKey: DataModuleKey;
+  priority: number;
+  source: string;
+  status: "queued" | "running" | "completed" | "failed";
+  scheduledFor: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  attempts: number;
+  maxAttempts: number;
+  lastError?: string | null;
+  updatedAt: string;
 };
 
 const memoryWatchlist = new Map<string, WatchlistItemRecord>([
@@ -232,6 +265,8 @@ const memoryAlerts = new Map<string, AlertRuleRecord>([
 
 const memoryAccessCodes = new Map<string, AccessCodeRecord>();
 const memoryResearchSnapshots = new Map<string, PersistedResearchSnapshotRecord>();
+const memoryCompanyDataModules = new Map<string, CompanyDataModuleStateRecord>();
+const memoryDataSyncJobs = new Map<string, DataSyncJobRecord>();
 const memorySystemUniverses = new Map<SystemUniverseId, SystemUniverseRecord>();
 const memorySystemUniverseMembers = new Map<SystemUniverseId, Map<string, SystemUniverseMemberRecord>>();
 
@@ -696,6 +731,43 @@ async function ensureSchema() {
         CREATE INDEX IF NOT EXISTS company_research_snapshots_symbol_refreshed_idx
           ON company_research_snapshots (symbol, refreshed_at DESC);
 
+        CREATE TABLE IF NOT EXISTS company_data_modules (
+          symbol TEXT NOT NULL,
+          module_key TEXT NOT NULL,
+          status TEXT NOT NULL,
+          refreshed_at TIMESTAMPTZ,
+          expires_at TIMESTAMPTZ,
+          last_success_at TIMESTAMPTZ,
+          last_error TEXT,
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (symbol, module_key)
+        );
+
+        CREATE INDEX IF NOT EXISTS company_data_modules_expires_idx
+          ON company_data_modules (expires_at, status);
+
+        CREATE TABLE IF NOT EXISTS data_sync_jobs (
+          id TEXT PRIMARY KEY,
+          symbol TEXT NOT NULL,
+          module_key TEXT NOT NULL,
+          priority INTEGER NOT NULL DEFAULT 50,
+          source TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'queued',
+          scheduled_for TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          started_at TIMESTAMPTZ,
+          completed_at TIMESTAMPTZ,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          max_attempts INTEGER NOT NULL DEFAULT 5,
+          last_error TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE (symbol, module_key)
+        );
+
+        CREATE INDEX IF NOT EXISTS data_sync_jobs_claim_idx
+          ON data_sync_jobs (status, scheduled_for, priority DESC);
+
         CREATE TABLE IF NOT EXISTS access_codes (
           id TEXT PRIMARY KEY,
           code_hash TEXT NOT NULL UNIQUE,
@@ -994,6 +1066,7 @@ export async function saveCompanyResearchSnapshot(
 
   if (!pg) {
     memoryResearchSnapshots.set(symbol, record);
+    await saveCompanyDataModuleStates(companyModuleStatesFromResearch(research));
     return record;
   }
 
@@ -1022,14 +1095,47 @@ export async function saveCompanyResearchSnapshot(
         refreshedAt
       ]
     );
-    return {
+    const savedRecord = {
       ...record,
       savedAt: rows.rows[0]?.saved_at?.toISOString() ?? now
     };
+    await saveCompanyDataModuleStates(companyModuleStatesFromResearch(research));
+    return savedRecord;
   } catch {
     memoryResearchSnapshots.set(symbol, record);
+    await saveCompanyDataModuleStates(companyModuleStatesFromResearch(research));
     return record;
   }
+}
+
+function companyModuleStatesFromResearch(
+  research: EnrichedResearch
+): CompanyDataModuleStateRecord[] {
+  const symbol = research.snapshot.profile.symbol.trim().toUpperCase();
+  const now = new Date().toISOString();
+
+  return (research.snapshot.dataStatus.modules ?? [])
+    .filter((module) => isDataModuleKey(module.key))
+    .map((module) => {
+      const refreshedAt =
+        module.refreshedAt ?? research.snapshot.dataStatus.refreshedAt ?? now;
+      const successful = module.status === "live" || module.status === "mock";
+
+      return {
+        symbol,
+        moduleKey: module.key,
+        status: module.status,
+        refreshedAt,
+        expiresAt: module.expiresAt ?? moduleExpiresAt(module.key, refreshedAt),
+        lastSuccessAt: successful ? refreshedAt : null,
+        lastError:
+          module.status === "stale" || module.status === "unavailable"
+            ? module.detail
+            : null,
+        attemptCount: successful ? 0 : 1,
+        updatedAt: now
+      };
+    });
 }
 
 export async function getCompanyResearchSnapshot(
@@ -1109,6 +1215,413 @@ export async function getCompanyResearchSnapshotStats() {
       count: memoryResearchSnapshots.size,
       latestSavedAt: undefined
     };
+  }
+}
+
+export async function saveCompanyDataModuleStates(
+  states: CompanyDataModuleStateRecord[]
+) {
+  if (!states.length) return;
+  const ready = await ensureSchema();
+  const pg = ready ? getPool() : null;
+
+  if (!pg) {
+    for (const state of states) {
+      memoryCompanyDataModules.set(`${state.symbol}:${state.moduleKey}`, state);
+    }
+    return;
+  }
+
+  try {
+    for (const state of states) {
+      await pg.query(
+        `
+        INSERT INTO company_data_modules
+          (symbol, module_key, status, refreshed_at, expires_at, last_success_at,
+           last_error, attempt_count, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+        ON CONFLICT (symbol, module_key)
+        DO UPDATE SET
+          status = EXCLUDED.status,
+          refreshed_at = COALESCE(EXCLUDED.refreshed_at, company_data_modules.refreshed_at),
+          expires_at = COALESCE(EXCLUDED.expires_at, company_data_modules.expires_at),
+          last_success_at = COALESCE(EXCLUDED.last_success_at, company_data_modules.last_success_at),
+          last_error = EXCLUDED.last_error,
+          attempt_count = EXCLUDED.attempt_count,
+          updated_at = NOW()
+        `,
+        [
+          state.symbol,
+          state.moduleKey,
+          state.status,
+          state.refreshedAt ?? null,
+          state.expiresAt ?? null,
+          state.lastSuccessAt ?? null,
+          state.lastError ?? null,
+          state.attemptCount
+        ]
+      );
+    }
+  } catch {
+    for (const state of states) {
+      memoryCompanyDataModules.set(`${state.symbol}:${state.moduleKey}`, state);
+    }
+  }
+}
+
+export async function getCompanyDataModuleStates(
+  symbol: string
+): Promise<CompanyDataModuleStateRecord[]> {
+  const normalized = symbol.trim().toUpperCase();
+  const ready = await ensureSchema();
+  const pg = ready ? getPool() : null;
+
+  if (!pg) {
+    return Array.from(memoryCompanyDataModules.values()).filter(
+      (state) => state.symbol === normalized
+    );
+  }
+
+  try {
+    const rows = await pg.query<{
+      symbol: string;
+      module_key: DataModuleKey;
+      status: CompanyDataModuleStateRecord["status"];
+      refreshed_at: Date | null;
+      expires_at: Date | null;
+      last_success_at: Date | null;
+      last_error: string | null;
+      attempt_count: number;
+      updated_at: Date;
+    }>(
+      `
+      SELECT symbol, module_key, status, refreshed_at, expires_at, last_success_at,
+        last_error, attempt_count, updated_at
+      FROM company_data_modules
+      WHERE symbol = $1
+      ORDER BY module_key
+      `,
+      [normalized]
+    );
+
+    return rows.rows.map((row) => ({
+      symbol: row.symbol,
+      moduleKey: row.module_key,
+      status: row.status,
+      refreshedAt: row.refreshed_at?.toISOString() ?? null,
+      expiresAt: row.expires_at?.toISOString() ?? null,
+      lastSuccessAt: row.last_success_at?.toISOString() ?? null,
+      lastError: row.last_error,
+      attemptCount: Number(row.attempt_count),
+      updatedAt: row.updated_at.toISOString()
+    }));
+  } catch {
+    return Array.from(memoryCompanyDataModules.values()).filter(
+      (state) => state.symbol === normalized
+    );
+  }
+}
+
+export async function enqueueDataSyncJobs(
+  jobs: Array<{
+    symbol: string;
+    moduleKey: DataModuleKey;
+    priority: number;
+    source: string;
+  }>
+) {
+  if (!jobs.length) return [];
+  const now = new Date().toISOString();
+  const ready = await ensureSchema();
+  const pg = ready ? getPool() : null;
+
+  if (!pg) {
+    for (const job of jobs) {
+      const symbol = job.symbol.trim().toUpperCase();
+      const id = `${symbol}:${job.moduleKey}`;
+      const existing = memoryDataSyncJobs.get(id);
+      if (existing?.status === "running") continue;
+      if (
+        existing?.status === "failed" &&
+        new Date(existing.scheduledFor).getTime() > Date.now()
+      ) {
+        continue;
+      }
+      memoryDataSyncJobs.set(id, {
+        id,
+        symbol,
+        moduleKey: job.moduleKey,
+        priority: Math.max(existing?.priority ?? 0, job.priority),
+        source: job.source,
+        status: "queued",
+        scheduledFor: now,
+        attempts:
+          existing?.status === "completed" ||
+          (existing?.status === "failed" &&
+            new Date(existing.scheduledFor).getTime() <= Date.now())
+            ? 0
+            : existing?.attempts ?? 0,
+        maxAttempts: existing?.maxAttempts ?? 5,
+        updatedAt: now
+      });
+    }
+    return jobs;
+  }
+
+  try {
+    for (const job of jobs) {
+      const symbol = job.symbol.trim().toUpperCase();
+      await pg.query(
+        `
+        INSERT INTO data_sync_jobs
+          (id, symbol, module_key, priority, source, status, scheduled_for)
+        VALUES ($1, $2, $3, $4, $5, 'queued', NOW())
+        ON CONFLICT (symbol, module_key)
+        DO UPDATE SET
+          priority = GREATEST(data_sync_jobs.priority, EXCLUDED.priority),
+          source = EXCLUDED.source,
+          status = CASE
+            WHEN data_sync_jobs.status = 'running' THEN 'running'
+            WHEN data_sync_jobs.status = 'failed' AND data_sync_jobs.scheduled_for > NOW()
+              THEN 'failed'
+            ELSE 'queued'
+          END,
+          scheduled_for = CASE
+            WHEN data_sync_jobs.status = 'running' THEN data_sync_jobs.scheduled_for
+            WHEN data_sync_jobs.status = 'failed' AND data_sync_jobs.scheduled_for > NOW()
+              THEN data_sync_jobs.scheduled_for
+            ELSE NOW()
+          END,
+          attempts = CASE
+            WHEN data_sync_jobs.status = 'completed' THEN 0
+            WHEN data_sync_jobs.status = 'failed' AND data_sync_jobs.scheduled_for <= NOW()
+              THEN 0
+            ELSE data_sync_jobs.attempts
+          END,
+          completed_at = NULL,
+          updated_at = NOW()
+        `,
+        [`${symbol}:${job.moduleKey}`, symbol, job.moduleKey, job.priority, job.source]
+      );
+    }
+  } catch {
+    return enqueueDataSyncJobsMemory(jobs);
+  }
+
+  return jobs;
+}
+
+function enqueueDataSyncJobsMemory(
+  jobs: Array<{
+    symbol: string;
+    moduleKey: DataModuleKey;
+    priority: number;
+    source: string;
+  }>
+) {
+  const now = new Date().toISOString();
+  for (const job of jobs) {
+    const symbol = job.symbol.trim().toUpperCase();
+    const id = `${symbol}:${job.moduleKey}`;
+    const existing = memoryDataSyncJobs.get(id);
+    memoryDataSyncJobs.set(id, {
+      id,
+      symbol,
+      moduleKey: job.moduleKey,
+      priority: Math.max(existing?.priority ?? 0, job.priority),
+      source: job.source,
+      status: "queued",
+      scheduledFor: now,
+      attempts: existing?.status === "completed" ? 0 : existing?.attempts ?? 0,
+      maxAttempts: existing?.maxAttempts ?? 5,
+      updatedAt: now
+    });
+  }
+  return jobs;
+}
+
+export async function claimDataSyncJobs(limit = 30): Promise<DataSyncJobRecord[]> {
+  const safeLimit = Math.max(1, Math.min(100, Math.floor(limit)));
+  const now = new Date();
+  const ready = await ensureSchema();
+  const pg = ready ? getPool() : null;
+
+  if (!pg) {
+    const claimed = Array.from(memoryDataSyncJobs.values())
+      .filter(
+        (job) =>
+          (job.status === "queued" || job.status === "failed") &&
+          new Date(job.scheduledFor).getTime() <= now.getTime() &&
+          job.attempts < job.maxAttempts
+      )
+      .sort(
+        (a, b) =>
+          b.priority - a.priority ||
+          a.scheduledFor.localeCompare(b.scheduledFor)
+      )
+      .slice(0, safeLimit)
+      .map((job) => ({
+        ...job,
+        status: "running" as const,
+        startedAt: now.toISOString(),
+        attempts: job.attempts + 1,
+        updatedAt: now.toISOString()
+      }));
+    for (const job of claimed) memoryDataSyncJobs.set(job.id, job);
+    return claimed;
+  }
+
+  try {
+    const rows = await pg.query<{
+      id: string;
+      symbol: string;
+      module_key: DataModuleKey;
+      priority: number;
+      source: string;
+      status: DataSyncJobRecord["status"];
+      scheduled_for: Date;
+      started_at: Date | null;
+      completed_at: Date | null;
+      attempts: number;
+      max_attempts: number;
+      last_error: string | null;
+      updated_at: Date;
+    }>(
+      `
+      WITH candidates AS (
+        SELECT id
+        FROM data_sync_jobs
+        WHERE (
+          status IN ('queued', 'failed')
+          AND scheduled_for <= NOW()
+          AND attempts < max_attempts
+        ) OR (
+          status = 'running'
+          AND started_at < NOW() - INTERVAL '15 minutes'
+          AND attempts < max_attempts
+        )
+        ORDER BY priority DESC, scheduled_for ASC
+        FOR UPDATE SKIP LOCKED
+        LIMIT $1
+      )
+      UPDATE data_sync_jobs AS jobs
+      SET status = 'running',
+          started_at = NOW(),
+          attempts = jobs.attempts + 1,
+          last_error = NULL,
+          updated_at = NOW()
+      FROM candidates
+      WHERE jobs.id = candidates.id
+      RETURNING jobs.*
+      `,
+      [safeLimit]
+    );
+
+    return rows.rows.map((row) => ({
+      id: row.id,
+      symbol: row.symbol,
+      moduleKey: row.module_key,
+      priority: Number(row.priority),
+      source: row.source,
+      status: row.status,
+      scheduledFor: row.scheduled_for.toISOString(),
+      startedAt: row.started_at?.toISOString() ?? null,
+      completedAt: row.completed_at?.toISOString() ?? null,
+      attempts: Number(row.attempts),
+      maxAttempts: Number(row.max_attempts),
+      lastError: row.last_error,
+      updatedAt: row.updated_at.toISOString()
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export async function finishDataSyncJobs(
+  jobs: DataSyncJobRecord[],
+  result: { ok: boolean; error?: string }
+) {
+  if (!jobs.length) return;
+  const now = new Date();
+  const ready = await ensureSchema();
+  const pg = ready ? getPool() : null;
+
+  for (const job of jobs) {
+    const retryDelaySeconds = Math.min(3600, 60 * 2 ** Math.max(0, job.attempts - 1));
+    const scheduledFor = new Date(now.getTime() + retryDelaySeconds * 1000);
+
+    if (!pg) {
+      memoryDataSyncJobs.set(job.id, {
+        ...job,
+        status: result.ok ? "completed" : "failed",
+        completedAt: result.ok ? now.toISOString() : null,
+        scheduledFor: result.ok ? job.scheduledFor : scheduledFor.toISOString(),
+        attempts: result.ok ? 0 : job.attempts,
+        lastError: result.ok ? null : result.error ?? "Unknown sync error",
+        updatedAt: now.toISOString()
+      });
+      continue;
+    }
+
+    try {
+      await pg.query(
+        `
+        UPDATE data_sync_jobs
+        SET status = $2,
+            completed_at = $3,
+            scheduled_for = $4,
+            last_error = $5,
+            attempts = CASE WHEN $2 = 'completed' THEN 0 ELSE attempts END,
+            updated_at = NOW()
+        WHERE id = $1
+        `,
+        [
+          job.id,
+          result.ok ? "completed" : "failed",
+          result.ok ? now : null,
+          result.ok ? job.scheduledFor : scheduledFor,
+          result.ok ? null : result.error ?? "Unknown sync error"
+        ]
+      );
+    } catch {
+      // A later planner pass can safely enqueue the module again.
+    }
+  }
+}
+
+export async function getDataSyncJobStats() {
+  const ready = await ensureSchema();
+  const pg = ready ? getPool() : null;
+
+  if (!pg) {
+    const jobs = Array.from(memoryDataSyncJobs.values());
+    return {
+      queued: jobs.filter((job) => job.status === "queued").length,
+      running: jobs.filter((job) => job.status === "running").length,
+      failed: jobs.filter((job) => job.status === "failed").length,
+      completed: jobs.filter((job) => job.status === "completed").length
+    };
+  }
+
+  try {
+    const rows = await pg.query<{ status: string; count: string }>(
+      `
+      SELECT status, COUNT(*)::TEXT AS count
+      FROM data_sync_jobs
+      GROUP BY status
+      `
+    );
+    const counts = Object.fromEntries(
+      rows.rows.map((row) => [row.status, Number(row.count)])
+    );
+    return {
+      queued: counts.queued ?? 0,
+      running: counts.running ?? 0,
+      failed: counts.failed ?? 0,
+      completed: counts.completed ?? 0
+    };
+  } catch {
+    return { queued: 0, running: 0, failed: 0, completed: 0 };
   }
 }
 

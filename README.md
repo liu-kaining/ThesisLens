@@ -55,7 +55,9 @@ The compose stack includes:
 - `app`: Next.js application.
 - `postgres`: durable watchlist, thesis, and research memo persistence.
 - `redis`: distributed research snapshot cache.
-- `worker`: background watchlist refresh loop.
+- `worker`: durable module-sync planner and processor for watchlist and system universes.
+- Refreshing is module-based: pages serve PostgreSQL snapshots, expired modules are
+  queued, and the worker merges successful FMP updates back into the snapshot.
 
 Postgres is initialized from `db/init.sql`. If Postgres is unavailable, the app
 falls back to an in-memory demo watchlist so the research experience still runs.
@@ -82,6 +84,10 @@ Important variables:
 - `REDIS_DISABLED`: set to `true` to force memory cache fallback.
 - `APP_BASE_URL`: worker target URL.
 - `WORKER_REFRESH_INTERVAL_MS`: background refresh interval.
+- `WORKER_MAX_SYMBOLS`: maximum personal watchlist symbols planned per cycle.
+- `WORKER_UNIVERSE_SYNC_INTERVAL_MS`: system universe constituent sync interval.
+- `WORKER_SYSTEM_BATCH_SIZE`: rotating system-universe symbols planned per cycle.
+- `WORKER_JOB_CLAIM_LIMIT`: module jobs claimed per worker cycle.
 
 ## Product Docs
 

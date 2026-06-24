@@ -1,12 +1,17 @@
 import { NextResponse } from "next/server";
 import { getCacheStats } from "@/lib/server/cache";
-import { getCompanyResearchSnapshotStats, getDatabaseHealth } from "@/lib/server/db";
+import {
+  getCompanyResearchSnapshotStats,
+  getDataSyncJobStats,
+  getDatabaseHealth
+} from "@/lib/server/db";
 
 export async function GET() {
-  const [database, cache, researchSnapshots] = await Promise.all([
+  const [database, cache, researchSnapshots, syncJobs] = await Promise.all([
     getDatabaseHealth(),
     getCacheStats(),
-    getCompanyResearchSnapshotStats()
+    getCompanyResearchSnapshotStats(),
+    getDataSyncJobStats()
   ]);
 
   return NextResponse.json({
@@ -15,6 +20,7 @@ export async function GET() {
     database,
     cache,
     researchSnapshots,
+    syncJobs,
     timestamp: new Date().toISOString()
   });
 }

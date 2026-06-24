@@ -325,9 +325,9 @@ function DataStatusPanel({ modules }: { modules: NonNullable<ResearchSnapshot["d
     <div className="mt-5 rounded-md border border-line bg-canvas p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold text-ink">数据接入状态</h2>
-        <span className="text-xs text-muted">绿色为已接入 FMP 实时数据，黄色为暂不可用或未接入</span>
+        <span className="text-xs text-muted">绿色为当前有效，黄色为正在使用本地快照并等待后台更新</span>
       </div>
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         {modules.map((module) => (
           <div
             key={module.key}
@@ -335,7 +335,7 @@ function DataStatusPanel({ modules }: { modules: NonNullable<ResearchSnapshot["d
             className={`rounded border p-3 ${
               module.status === "live"
                 ? "border-moss bg-[#f2f6ec]"
-                : module.status === "mock"
+                : module.status === "mock" || module.status === "stale"
                   ? "border-amber bg-[#fff7e8]"
                   : "border-line bg-white"
             }`}
@@ -345,13 +345,24 @@ function DataStatusPanel({ modules }: { modules: NonNullable<ResearchSnapshot["d
               className={`mt-1 text-xs ${
                 module.status === "live"
                   ? "text-moss"
-                  : module.status === "mock"
+                  : module.status === "mock" || module.status === "stale"
                     ? "text-amber"
                     : "text-muted"
               }`}
             >
-              {module.status === "live" ? "已接入" : module.status === "mock" ? "示例" : "暂无实时数据"}
+              {module.status === "live"
+                ? "当前有效"
+                : module.status === "stale"
+                  ? "本地快照 · 待更新"
+                  : module.status === "mock"
+                    ? "示例"
+                    : "暂无可用数据"}
             </p>
+            {module.refreshedAt ? (
+              <p className="mt-1 text-[11px] text-muted">
+                更新 {new Date(module.refreshedAt).toLocaleString("zh-CN", { hour12: false })}
+              </p>
+            ) : null}
           </div>
         ))}
       </div>

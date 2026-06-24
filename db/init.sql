@@ -333,6 +333,43 @@ CREATE TABLE IF NOT EXISTS company_research_snapshots (
 CREATE INDEX IF NOT EXISTS company_research_snapshots_symbol_refreshed_idx
   ON company_research_snapshots (symbol, refreshed_at DESC);
 
+CREATE TABLE IF NOT EXISTS company_data_modules (
+  symbol TEXT NOT NULL,
+  module_key TEXT NOT NULL,
+  status TEXT NOT NULL,
+  refreshed_at TIMESTAMPTZ,
+  expires_at TIMESTAMPTZ,
+  last_success_at TIMESTAMPTZ,
+  last_error TEXT,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (symbol, module_key)
+);
+
+CREATE INDEX IF NOT EXISTS company_data_modules_expires_idx
+  ON company_data_modules (expires_at, status);
+
+CREATE TABLE IF NOT EXISTS data_sync_jobs (
+  id TEXT PRIMARY KEY,
+  symbol TEXT NOT NULL,
+  module_key TEXT NOT NULL,
+  priority INTEGER NOT NULL DEFAULT 50,
+  source TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'queued',
+  scheduled_for TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  started_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  max_attempts INTEGER NOT NULL DEFAULT 5,
+  last_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (symbol, module_key)
+);
+
+CREATE INDEX IF NOT EXISTS data_sync_jobs_claim_idx
+  ON data_sync_jobs (status, scheduled_for, priority DESC);
+
 CREATE TABLE IF NOT EXISTS access_codes (
   id TEXT PRIMARY KEY,
   code_hash TEXT NOT NULL UNIQUE,
