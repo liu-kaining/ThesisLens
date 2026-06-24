@@ -1,6 +1,41 @@
 # Verification Log
 
-Last verified: 2026-06-21
+Last verified: 2026-06-24
+
+## Production Readiness Review (2026-06-24)
+
+The private, single-tenant deployment profile passed the final CTO review.
+The following checks were completed against the live Docker Compose stack:
+
+- `npm run verify`: 14 test files and 26 tests passed, followed by a successful
+  production build.
+- `npm audit --omit=dev`: zero production dependency vulnerabilities.
+- `SMOKE_BASE_URL=http://localhost:3009 npm run smoke`: authentication, health,
+  dashboard, company research APIs, universes, screens, market, calendar,
+  portfolio, theses, and alerts all passed.
+- App, Postgres, and Redis containers reported healthy status.
+- Health API reported live FMP mode, connected Postgres and Redis, 57 persisted
+  research snapshots, and no queued, running, or failed sync jobs.
+- The incremental worker completed 34 module jobs across 12 companies with zero
+  failures.
+- Live database inspection found no mock research snapshots and no historical
+  seeded thesis, holding, or alert records.
+- A fresh Postgres database successfully initialized the snapshot, module,
+  queue, thesis, holding, and alert tables.
+- Viewer sessions were denied access to internal APIs. The internal worker token
+  was limited to internal routes plus read-only planning data and could not
+  write user data.
+- Login rate limiting, session expiration, request validation, security headers,
+  queue retry cooldown, and concurrent FMP endpoint accounting are covered by
+  automated tests.
+
+Approval scope:
+
+- Approved for a private deployment with a shared research data space.
+- A public multi-user service still requires user accounts, row ownership,
+  per-user authorization, audit logs, and tenant isolation.
+- Production operations must provide HTTPS, secure cookies, managed database
+  backups, monitoring, and confirmed FMP redistribution/display rights.
 
 ## Local Node Verification
 
