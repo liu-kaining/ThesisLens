@@ -118,7 +118,7 @@ const checks = [
   {
     name: "theses api",
     path: "/api/theses",
-    expect: ["\"theses\"", "\"symbol\""]
+    expect: ["\"theses\""]
   },
   {
     name: "alerts page",
@@ -128,7 +128,7 @@ const checks = [
   {
     name: "alerts api",
     path: "/api/alerts",
-    expect: ["\"alerts\"", "\"triggered\""]
+    expect: ["\"alerts\""]
   }
 ];
 

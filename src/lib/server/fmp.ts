@@ -109,6 +109,8 @@ export type FmpUniverseMember = {
 };
 
 const endpointStatuses = new Map<string, EndpointStatus>();
+let fmpRequestGate = Promise.resolve();
+let nextFmpRequestAt = 0;
 const US_SEARCH_EXCHANGES = new Set(["NASDAQ", "NYSE", "AMEX", "CBOE", "OTC"]);
 const INDEX_UNIVERSE_ENDPOINTS: Partial<Record<SystemUniverseId, string>> = {
   sp500: "sp500-constituent",
@@ -219,7 +221,8 @@ async function fmpRequest<T>(
   path: string,
   params: Record<string, string | number | undefined> = {},
   revalidate = 900,
-  schema: z.ZodType<T> = fmpRecordArraySchema as unknown as z.ZodType<T>
+  schema: z.ZodType<T> = fmpRecordArraySchema as unknown as z.ZodType<T>,
+  requestStatuses?: Map<string, EndpointStatus>
 ): Promise<T | null> {
   if (!process.env.FMP_API_KEY) return null;
 
@@ -232,6 +235,7 @@ async function fmpRequest<T>(
   const startedAt = Date.now();
 
   try {
+    await waitForFmpRequestSlot();
     const response = await fetch(url, {
       next: { revalidate }
     });
@@ -246,7 +250,7 @@ async function fmpRequest<T>(
     const json = text ? JSON.parse(text) : null;
     const parsed = schema.safeParse(json);
     if (!parsed.success) {
-      endpointStatuses.set(normalizedPath, {
+      recordEndpointStatus(normalizedPath, {
         path: normalizedPath,
         ok: false,
         httpStatus: response.status,
@@ -255,11 +259,11 @@ async function fmpRequest<T>(
         itemCount: Array.isArray(json) ? json.length : undefined,
         lastCheckedAt: new Date().toISOString(),
         lastError: parsed.error.issues.map((issue) => issue.message).join("; ")
-      });
+      }, requestStatuses);
       return null;
     }
 
-    endpointStatuses.set(normalizedPath, {
+    recordEndpointStatus(normalizedPath, {
       path: normalizedPath,
       ok: true,
       httpStatus: response.status,
@@ -267,27 +271,60 @@ async function fmpRequest<T>(
       responseBytes,
       itemCount: Array.isArray(parsed.data) ? parsed.data.length : undefined,
       lastCheckedAt: new Date().toISOString()
-    });
+    }, requestStatuses);
 
     return parsed.data;
   } catch (error) {
-    endpointStatuses.set(normalizedPath, {
+    recordEndpointStatus(normalizedPath, {
       path: normalizedPath,
       ok: false,
       latencyMs: Date.now() - startedAt,
       lastCheckedAt: new Date().toISOString(),
       lastError: error instanceof Error ? error.message : "Unknown FMP request error"
-    });
+    }, requestStatuses);
     return null;
   }
 }
 
-export function getFmpEndpointHealth() {
-  return Array.from(endpointStatuses.values()).sort((a, b) => a.path.localeCompare(b.path));
+async function waitForFmpRequestSlot() {
+  const configuredInterval = Number(process.env.FMP_MIN_REQUEST_INTERVAL_MS);
+  const intervalMs =
+    process.env.NODE_ENV === "test"
+      ? 0
+      : Number.isFinite(configuredInterval) && configuredInterval >= 0
+        ? configuredInterval
+        : 80;
+  if (intervalMs === 0) return;
+
+  let release = () => {};
+  const previous = fmpRequestGate;
+  fmpRequestGate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous;
+
+  try {
+    const waitMs = Math.max(0, nextFmpRequestAt - Date.now());
+    if (waitMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+    nextFmpRequestAt = Date.now() + intervalMs;
+  } finally {
+    release();
+  }
 }
 
-function endpointSucceeded(...paths: string[]) {
-  return paths.some((path) => endpointStatuses.get(path)?.ok === true);
+function recordEndpointStatus(
+  path: string,
+  status: EndpointStatus,
+  requestStatuses?: Map<string, EndpointStatus>
+) {
+  endpointStatuses.set(path, status);
+  requestStatuses?.set(path, status);
+}
+
+export function getFmpEndpointHealth() {
+  return Array.from(endpointStatuses.values()).sort((a, b) => a.path.localeCompare(b.path));
 }
 
 function hasFinancialScoreValues(scores: FinancialScores) {
@@ -344,9 +381,7 @@ export async function searchFmpSymbols(query: string): Promise<SearchResult[]> {
     ).values()
   ).sort((a, b) => searchRank(a, normalized) - searchRank(b, normalized));
 
-  return deduped.length > 0
-    ? deduped
-    : mockSearchResults.filter((item) => item.symbol.includes(normalized));
+  return deduped;
 }
 
 function searchRank(item: SearchResult, query: string) {
@@ -448,6 +483,13 @@ export async function getFmpResearchSnapshot(
   const requestedModules = new Set(options.modules ?? allDataModuleKeys());
   const wants = (moduleKey: DataModuleKey) => requestedModules.has(moduleKey);
   const baseSnapshot = options.baseSnapshot;
+  const requestStatuses = new Map<string, EndpointStatus>();
+  const request = <T>(
+    path: string,
+    params: Record<string, string | number | undefined>,
+    revalidate: number,
+    schema: z.ZodType<T>
+  ) => fmpRequest<T>(path, params, revalidate, schema, requestStatuses);
 
   const today = new Date();
   const from = new Date(today);
@@ -485,32 +527,52 @@ export async function getFmpResearchSnapshot(
     historicalRaw,
     peersRaw
   ] = await Promise.all([
-    wants("profile") ? fmpRequest<unknown[]>("profile", { symbol: normalized }, 86400, profileResponseSchema) : null,
-    wants("quote") ? fmpRequest<unknown[]>("quote", { symbol: normalized }, 60, quoteResponseSchema) : null,
-    wants("fundamentals") ? fmpRequest<unknown[]>("income-statement", { symbol: normalized, period: "annual", limit: 6 }, 43200, financialResponseSchema) : null,
-    wants("fundamentals") ? fmpRequest<unknown[]>("balance-sheet-statement", { symbol: normalized, period: "annual", limit: 6 }, 43200, fmpRecordArraySchema) : null,
-    wants("fundamentals") ? fmpRequest<unknown[]>("cash-flow-statement", { symbol: normalized, period: "annual", limit: 6 }, 43200, cashFlowResponseSchema) : null,
-    wants("fundamentals") ? fmpRequest<unknown[]>("key-metrics", { symbol: normalized, period: "annual", limit: 6 }, 43200, fmpRecordArraySchema) : null,
-    wants("fundamentals") ? fmpRequest<unknown[]>("ratios", { symbol: normalized, period: "annual", limit: 6 }, 43200, fmpRecordArraySchema) : null,
-    wants("financial_scores") ? fmpRequest<unknown[]>("financial-scores", { symbol: normalized }, 43200, fmpRecordArraySchema) : null,
-    wants("expectations") ? fmpRequest<unknown[]>("analyst-estimates", { symbol: normalized, period: "annual", limit: 4 }, 21600, fmpRecordArraySchema) : null,
-    wants("valuation") ? fmpRequest<unknown[]>("price-target-consensus", { symbol: normalized }, 21600, fmpRecordArraySchema) : null,
-    wants("expectations") ? fmpRequest<unknown[]>("ratings-snapshot", { symbol: normalized }, 21600, fmpRecordArraySchema) : null,
-    wants("valuation") ? fmpRequest<unknown[]>("discounted-cash-flow", { symbol: normalized }, 21600, fmpRecordArraySchema) : null,
-    wants("valuation") ? fmpRequest<unknown[]>("levered-discounted-cash-flow", { symbol: normalized }, 21600, fmpRecordArraySchema) : null,
-    wants("valuation") ? fmpRequest<unknown[]>("enterprise-values", { symbol: normalized, period: "annual", limit: 3 }, 43200, fmpRecordArraySchema) : null,
-    wants("news") ? fmpRequest<unknown[]>("news/stock", { symbols: normalized, limit: 8 }, 900, fmpRecordArraySchema) : null,
-    wants("news") ? fmpRequest<unknown[]>("news/press-releases", { symbol: normalized, limit: 5 }, 1800, fmpRecordArraySchema) : null,
-    wants("sec") ? fmpRequest<unknown[]>("sec-filings-search/symbol", { symbol: normalized, from: fromDate, to: toDate, page: 0, limit: 12 }, 1800, filingResponseSchema) : null,
-    wants("insider") ? fmpRequest<unknown[]>("insider-trading/search", { symbol: normalized, page: 0, limit: 12 }, 3600, fmpRecordArraySchema) : null,
-    wants("congress") ? fmpRequest<unknown[]>("senate-trades", { symbol: normalized }, 3600, fmpRecordArraySchema) : null,
-    wants("congress") ? fmpRequest<unknown[]>("house-trades", { symbol: normalized }, 3600, fmpRecordArraySchema) : null,
-    wants("calendar") ? fmpRequest<unknown[]>("earnings", { symbol: normalized }, 21600, fmpRecordArraySchema) : null,
-    wants("technical") ? fmpRequest<unknown[]>("historical-price-eod/light", { symbol: normalized, from: fromDate, to: toDate }, 3600, fmpRecordArraySchema) : null,
-    wants("peers") ? fmpRequest<unknown[]>("stock-peers", { symbol: normalized }, 86400, fmpRecordArraySchema) : null
+    wants("profile") ? request<unknown[]>("profile", { symbol: normalized }, 86400, profileResponseSchema) : null,
+    wants("quote") ? request<unknown[]>("quote", { symbol: normalized }, 60, quoteResponseSchema) : null,
+    wants("fundamentals") ? request<unknown[]>("income-statement", { symbol: normalized, period: "annual", limit: 6 }, 43200, financialResponseSchema) : null,
+    wants("fundamentals") ? request<unknown[]>("balance-sheet-statement", { symbol: normalized, period: "annual", limit: 6 }, 43200, fmpRecordArraySchema) : null,
+    wants("fundamentals") ? request<unknown[]>("cash-flow-statement", { symbol: normalized, period: "annual", limit: 6 }, 43200, cashFlowResponseSchema) : null,
+    wants("fundamentals") ? request<unknown[]>("key-metrics", { symbol: normalized, period: "annual", limit: 6 }, 43200, fmpRecordArraySchema) : null,
+    wants("fundamentals") ? request<unknown[]>("ratios", { symbol: normalized, period: "annual", limit: 6 }, 43200, fmpRecordArraySchema) : null,
+    wants("financial_scores") ? request<unknown[]>("financial-scores", { symbol: normalized }, 43200, fmpRecordArraySchema) : null,
+    wants("expectations") ? request<unknown[]>("analyst-estimates", { symbol: normalized, period: "annual", limit: 4 }, 21600, fmpRecordArraySchema) : null,
+    wants("valuation") ? request<unknown[]>("price-target-consensus", { symbol: normalized }, 21600, fmpRecordArraySchema) : null,
+    wants("expectations") ? request<unknown[]>("ratings-snapshot", { symbol: normalized }, 21600, fmpRecordArraySchema) : null,
+    wants("valuation") ? request<unknown[]>("discounted-cash-flow", { symbol: normalized }, 21600, fmpRecordArraySchema) : null,
+    wants("valuation") ? request<unknown[]>("levered-discounted-cash-flow", { symbol: normalized }, 21600, fmpRecordArraySchema) : null,
+    wants("valuation") ? request<unknown[]>("enterprise-values", { symbol: normalized, period: "annual", limit: 3 }, 43200, fmpRecordArraySchema) : null,
+    wants("news") ? request<unknown[]>("news/stock", { symbols: normalized, limit: 8 }, 900, fmpRecordArraySchema) : null,
+    wants("news") ? request<unknown[]>("news/press-releases", { symbol: normalized, limit: 5 }, 1800, fmpRecordArraySchema) : null,
+    wants("sec") ? request<unknown[]>("sec-filings-search/symbol", { symbol: normalized, from: fromDate, to: toDate, page: 0, limit: 12 }, 1800, filingResponseSchema) : null,
+    wants("insider") ? request<unknown[]>("insider-trading/search", { symbol: normalized, page: 0, limit: 12 }, 3600, fmpRecordArraySchema) : null,
+    wants("congress") ? request<unknown[]>("senate-trades", { symbol: normalized }, 3600, fmpRecordArraySchema) : null,
+    wants("congress") ? request<unknown[]>("house-trades", { symbol: normalized }, 3600, fmpRecordArraySchema) : null,
+    wants("calendar") ? request<unknown[]>("earnings", { symbol: normalized }, 21600, fmpRecordArraySchema) : null,
+    wants("technical") ? request<unknown[]>("historical-price-eod/light", { symbol: normalized, from: fromDate, to: toDate }, 3600, fmpRecordArraySchema) : null,
+    wants("peers") ? request<unknown[]>("stock-peers", { symbol: normalized }, 86400, fmpRecordArraySchema) : null
   ]);
+  const endpointSucceeded = (...paths: string[]) =>
+    paths.some((path) => requestStatuses.get(path)?.ok === true);
 
-  const fallback = getMockSnapshot(normalized);
+  const fallbackProfile = baseSnapshot?.profile ?? {
+    symbol: normalized,
+    name: normalized,
+    exchange: "N/A",
+    sector: "N/A",
+    industry: "N/A",
+    country: "US",
+    currency: "USD",
+    description: "FMP 公司资料暂不可用，等待后台刷新。"
+  };
+  const fallbackQuote = baseSnapshot?.quote ?? {
+    symbol: normalized,
+    price: 0,
+    change: 0,
+    changesPercentage: 0,
+    volume: 0,
+    marketCap: 0,
+    timestamp: new Date().toISOString()
+  };
   const warnings: string[] = [];
 
   const profile = asArray(profileRaw)[0];
@@ -548,7 +610,7 @@ export async function getFmpResearchSnapshot(
   const peers = wants("peers") && freshPeers.length ? freshPeers : baseSnapshot?.peers ?? [];
   const now = new Date().toISOString();
   const endpointFailed = (...paths: string[]) =>
-    paths.some((path) => endpointStatuses.get(path)?.ok === false);
+    paths.some((path) => requestStatuses.get(path)?.ok === false);
   const endpointReason = (...paths: string[]) =>
     endpointFailed(...paths) ? "端点请求失败" : "端点未返回可用数据";
   const warn = (message: string) => {
@@ -703,38 +765,38 @@ export async function getFmpResearchSnapshot(
     profile: profile
       ? {
           symbol: normalized,
-          name: str(profile, ["companyName", "name"], fallback.profile.name),
-          exchange: str(profile, ["exchangeShortName", "exchange", "stockExchange"], fallback.profile.exchange),
-          sector: str(profile, ["sector"], fallback.profile.sector),
-          industry: str(profile, ["industry"], fallback.profile.industry),
+          name: str(profile, ["companyName", "name"], fallbackProfile.name),
+          exchange: str(profile, ["exchangeShortName", "exchange", "stockExchange"], fallbackProfile.exchange),
+          sector: str(profile, ["sector"], fallbackProfile.sector),
+          industry: str(profile, ["industry"], fallbackProfile.industry),
           country: str(profile, ["country"], "US"),
           currency: str(profile, ["currency"], "USD"),
-          website: str(profile, ["website"], fallback.profile.website),
-          ceo: str(profile, ["ceo"], fallback.profile.ceo),
-          image: str(profile, ["image"], fallback.profile.image),
-          description: str(profile, ["description"], fallback.profile.description),
+          website: str(profile, ["website"], fallbackProfile.website),
+          ceo: str(profile, ["ceo"], fallbackProfile.ceo),
+          image: str(profile, ["image"], fallbackProfile.image),
+          description: str(profile, ["description"], fallbackProfile.description),
           marketCap: optionalNum(profile, ["marketCap", "mktCap"]),
           beta: optionalNum(profile, ["beta"]),
-          ipoDate: str(profile, ["ipoDate"], fallback.profile.ipoDate),
+          ipoDate: str(profile, ["ipoDate"], fallbackProfile.ipoDate),
           employees: optionalNum(profile, ["fullTimeEmployees", "employees"])
       }
-      : baseSnapshot?.profile ?? fallback.profile,
+      : fallbackProfile,
     quote: quote
       ? {
           symbol: normalized,
-          price: num(quote, ["price"], fallback.quote.price),
-          change: num(quote, ["change"], fallback.quote.change),
-          changesPercentage: num(quote, ["changesPercentage", "changePercentage"], fallback.quote.changesPercentage),
-          volume: num(quote, ["volume"], fallback.quote.volume),
+          price: num(quote, ["price"], fallbackQuote.price),
+          change: num(quote, ["change"], fallbackQuote.change),
+          changesPercentage: num(quote, ["changesPercentage", "changePercentage"], fallbackQuote.changesPercentage),
+          volume: num(quote, ["volume"], fallbackQuote.volume),
           avgVolume: optionalNum(quote, ["avgVolume"]),
-          marketCap: num(quote, ["marketCap"], fallback.quote.marketCap),
+          marketCap: num(quote, ["marketCap"], fallbackQuote.marketCap),
           yearHigh: optionalNum(quote, ["yearHigh"]),
           yearLow: optionalNum(quote, ["yearLow"]),
           pe: optionalNum(quote, ["pe", "peRatio"]),
           eps: optionalNum(quote, ["eps"]),
           timestamp: now
       }
-      : baseSnapshot?.quote ?? fallback.quote,
+      : fallbackQuote,
     financials,
     metrics,
     scores: normalizedScores,

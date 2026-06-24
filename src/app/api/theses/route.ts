@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { thesisInputSchema } from "@/lib/api-validation";
 import { addSavedThesis, getSavedTheses } from "@/lib/server/db";
 
 export async function GET() {
@@ -8,19 +9,18 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => ({}))) as {
-    symbol?: string;
-    title?: string;
-    thesisText?: string;
-    status?: "active" | "watching" | "closed";
-  };
+  const parsed = thesisInputSchema.safeParse(
+    await request.json().catch(() => ({}))
+  );
+  if (!parsed.success) {
+    return NextResponse.json({ error: "Thesis 内容格式不正确。" }, { status: 400 });
+  }
   const theses = await addSavedThesis({
-    symbol: body.symbol ?? "",
-    title: body.title ?? "",
-    thesisText: body.thesisText ?? "",
-    status: body.status
+    symbol: parsed.data.symbol,
+    title: parsed.data.title,
+    thesisText: parsed.data.thesisText,
+    status: parsed.data.status
   });
 
   return NextResponse.json({ theses });
 }
-

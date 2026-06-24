@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { addWatchlistItem } from "@/lib/server/db";
 import { getEnrichedWatchlist } from "@/lib/server/watchlist";
 
 describe("watchlist enrichment", () => {
@@ -6,6 +7,9 @@ describe("watchlist enrichment", () => {
     vi.stubEnv("DATABASE_DISABLED", "true");
     vi.stubEnv("REDIS_DISABLED", "true");
     vi.stubEnv("FMP_USE_MOCKS", "true");
+    await addWatchlistItem("AAPL");
+    await addWatchlistItem("MSFT");
+    await addWatchlistItem("NVDA");
 
     const watchlist = await getEnrichedWatchlist();
     const expectedCategories = [

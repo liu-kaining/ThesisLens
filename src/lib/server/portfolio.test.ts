@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { upsertPortfolioHolding } from "@/lib/server/db";
 import { getPortfolioModel } from "@/lib/server/portfolio";
 
 describe("portfolio model", () => {
@@ -6,6 +7,8 @@ describe("portfolio model", () => {
     vi.stubEnv("DATABASE_DISABLED", "true");
     vi.stubEnv("REDIS_DISABLED", "true");
     vi.stubEnv("FMP_USE_MOCKS", "true");
+    await upsertPortfolioHolding({ symbol: "AAPL", shares: 12, averageCost: 172.5 });
+    await upsertPortfolioHolding({ symbol: "MSFT", shares: 8, averageCost: 405 });
 
     const portfolio = await getPortfolioModel();
     const totalWeight = portfolio.holdings.reduce((sum, holding) => sum + holding.weight, 0);

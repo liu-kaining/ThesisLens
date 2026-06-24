@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { addAlertRule } from "@/lib/server/db";
 import { getEvaluatedAlerts } from "@/lib/server/alerts";
 
 describe("alert evaluation", () => {
@@ -6,6 +7,18 @@ describe("alert evaluation", () => {
     vi.stubEnv("DATABASE_DISABLED", "true");
     vi.stubEnv("REDIS_DISABLED", "true");
     vi.stubEnv("FMP_USE_MOCKS", "true");
+    await addAlertRule({
+      symbol: "MSFT",
+      alertType: "expectations_score",
+      threshold: 70,
+      direction: "above"
+    });
+    await addAlertRule({
+      symbol: "NVDA",
+      alertType: "valuation_score",
+      threshold: 45,
+      direction: "below"
+    });
 
     const alerts = await getEvaluatedAlerts();
 

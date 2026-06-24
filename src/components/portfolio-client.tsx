@@ -12,40 +12,59 @@ export function PortfolioClient({ initialPortfolio }: { initialPortfolio: Portfo
   const [shares, setShares] = useState("");
   const [averageCost, setAverageCost] = useState("");
   const [notes, setNotes] = useState("");
+  const [error, setError] = useState("");
   const [isPending, startTransition] = useTransition();
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     startTransition(async () => {
-      const response = await fetch("/api/portfolio", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          symbol,
-          shares: Number(shares),
-          averageCost: averageCost ? Number(averageCost) : null,
-          notes
-        })
-      });
-      setPortfolio((await response.json()) as PortfolioModel);
-      setSymbol("");
-      setShares("");
-      setAverageCost("");
-      setNotes("");
+      setError("");
+      try {
+        const response = await fetch("/api/portfolio", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            symbol,
+            shares: Number(shares),
+            averageCost: averageCost ? Number(averageCost) : null,
+            notes
+          })
+        });
+        if (!response.ok) throw new Error("保存失败");
+        setPortfolio((await response.json()) as PortfolioModel);
+        setSymbol("");
+        setShares("");
+        setAverageCost("");
+        setNotes("");
+      } catch {
+        setError("持仓保存失败，请稍后重试。");
+      }
     });
   }
 
   function remove(symbolToRemove: string) {
     startTransition(async () => {
-      const response = await fetch(`/api/portfolio/items/${encodeURIComponent(symbolToRemove)}`, {
-        method: "DELETE"
-      });
-      setPortfolio((await response.json()) as PortfolioModel);
+      setError("");
+      try {
+        const response = await fetch(
+          `/api/portfolio/items/${encodeURIComponent(symbolToRemove)}`,
+          { method: "DELETE" }
+        );
+        if (!response.ok) throw new Error("删除失败");
+        setPortfolio((await response.json()) as PortfolioModel);
+      } catch {
+        setError("持仓删除失败，数据没有被修改。");
+      }
     });
   }
 
   return (
     <div className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
+      {error ? (
+        <div className="rounded-md border border-brick/30 bg-brick/5 p-3 text-sm text-brick lg:col-span-2">
+          {error}
+        </div>
+      ) : null}
       <form onSubmit={submit} className="rounded-md border border-line bg-white p-5 shadow-sm">
         <h2 className="text-sm font-semibold text-ink">添加持仓</h2>
         <div className="mt-5 grid gap-4 sm:grid-cols-2">

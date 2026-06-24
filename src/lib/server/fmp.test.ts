@@ -89,7 +89,7 @@ describe("FMP adapter", () => {
     expect(health[0].responseBytes).toBeGreaterThan(0);
   });
 
-  it("falls back to bundled search results when live payload validation fails", async () => {
+  it("does not inject bundled search results when live payload validation fails", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ error: "not an array" })));
 
     const { getFmpEndpointHealth, searchFmpSymbols } = await import("@/lib/server/fmp");
@@ -97,7 +97,7 @@ describe("FMP adapter", () => {
     const status = getFmpEndpointHealth().find((endpoint) => endpoint.path === "search-symbol");
     const nameStatus = getFmpEndpointHealth().find((endpoint) => endpoint.path === "search-name");
 
-    expect(results.some((item) => item.symbol === "AAPL")).toBe(true);
+    expect(results).toEqual([]);
     expect(status).toMatchObject({
       path: "search-symbol",
       ok: false,
@@ -159,7 +159,7 @@ describe("FMP adapter", () => {
     const profileStatus = health.find((endpoint) => endpoint.path === "profile");
     const quoteStatus = health.find((endpoint) => endpoint.path === "quote");
 
-    expect(snapshot.profile.name).toBe("Apple Inc.");
+    expect(snapshot.profile.name).toBe("AAPL");
     expect(snapshot.quote.price).toBe(201.5);
     expect(snapshot.dataStatus.mode).toBe("mixed");
     expect(snapshot.dataStatus.warnings.join(" ")).toContain("公司资料暂不可用");
@@ -177,5 +177,54 @@ describe("FMP adapter", () => {
       httpStatus: 200,
       itemCount: 1
     });
+  });
+
+  it("keeps endpoint status isolated between concurrent company refreshes", async () => {
+    const fetchMock = vi.fn(async (input: URL | RequestInfo) => {
+      const { endpoint, url } = endpointFromInput(input);
+      const symbol = url.searchParams.get("symbol");
+
+      if (endpoint === "quote" && symbol === "AAAA") {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return jsonResponse([
+          {
+            symbol,
+            price: 100,
+            change: 1,
+            changesPercentage: 1,
+            volume: 1000,
+            marketCap: 1000000
+          }
+        ]);
+      }
+      if (endpoint === "profile" && symbol === "AAAA") {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        return jsonResponse([{ symbol, companyName: "Company A" }]);
+      }
+      if (endpoint === "profile" && symbol === "BBBB") {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return jsonResponse([{ symbol, companyName: "Company B" }]);
+      }
+      if (endpoint === "quote" && symbol === "BBBB") {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return jsonResponse({ error: "invalid quote payload" });
+      }
+
+      return jsonResponse([]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { getFmpResearchSnapshot } = await import("@/lib/server/fmp");
+    const [companyA, companyB] = await Promise.all([
+      getFmpResearchSnapshot("AAAA", { modules: ["profile", "quote"] }),
+      getFmpResearchSnapshot("BBBB", { modules: ["profile", "quote"] })
+    ]);
+    const moduleState = (
+      snapshot: Awaited<ReturnType<typeof getFmpResearchSnapshot>>,
+      key: string
+    ) => snapshot.dataStatus.modules?.find((item) => item.key === key);
+
+    expect(moduleState(companyA, "quote")?.status).toBe("live");
+    expect(moduleState(companyB, "quote")?.status).toBe("unavailable");
   });
 });

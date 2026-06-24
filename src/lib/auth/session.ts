@@ -11,11 +11,19 @@ export type AuthSession = {
 const encoder = new TextEncoder();
 
 export function isAuthConfigured() {
-  return Boolean(process.env.AUTH_SECRET && getAdminPassphrase());
+  return Boolean(
+    process.env.AUTH_SECRET &&
+      process.env.AUTH_SECRET.length >= 32 &&
+      getAdminPassphrase() &&
+      (getAdminPassphrase()?.length ?? 0) >= 12
+  );
 }
 
 export function isInternalTokenConfigured() {
-  return Boolean(process.env.INTERNAL_API_TOKEN);
+  return Boolean(
+    process.env.INTERNAL_API_TOKEN &&
+      process.env.INTERNAL_API_TOKEN.length >= 32
+  );
 }
 
 export function getAuthConfigStatus() {
@@ -28,24 +36,37 @@ export function getAuthConfigStatus() {
 
 export function verifyAdminPassphrase(passphrase: string) {
   const adminPassphrase = getAdminPassphrase();
-  return Boolean(adminPassphrase && passphrase === adminPassphrase);
+  return Boolean(adminPassphrase && constantTimeEqual(passphrase, adminPassphrase));
 }
 
 export function verifyInternalToken(value: string | null) {
-  return Boolean(process.env.INTERNAL_API_TOKEN && value && value === process.env.INTERNAL_API_TOKEN);
+  return Boolean(
+    process.env.INTERNAL_API_TOKEN &&
+      value &&
+      constantTimeEqual(value, process.env.INTERNAL_API_TOKEN)
+  );
 }
 
-export async function createSessionToken(subject: string, role: AuthSession["role"], now = Date.now()) {
+export async function createSessionToken(
+  subject: string,
+  role: AuthSession["role"],
+  now = Date.now(),
+  maxAgeSeconds = SESSION_MAX_AGE_SECONDS
+) {
   const secret = process.env.AUTH_SECRET;
   if (!secret) {
     throw new Error("AUTH_SECRET is not configured");
   }
+  const boundedMaxAgeSeconds = Math.max(
+    1,
+    Math.min(SESSION_MAX_AGE_SECONDS, Math.floor(maxAgeSeconds))
+  );
 
   const payload: AuthSession = {
     subject,
     role,
     issuedAt: now,
-    expiresAt: now + SESSION_MAX_AGE_SECONDS * 1000
+    expiresAt: now + boundedMaxAgeSeconds * 1000
   };
   const encodedPayload = base64UrlEncode(JSON.stringify(payload));
   const signature = await sign(encodedPayload, secret);
@@ -90,8 +111,23 @@ async function sign(value: string, secret: string) {
 }
 
 async function verifySignature(value: string, signature: string, secret: string) {
-  const expected = await sign(value, secret);
-  return expected === signature;
+  try {
+    const key = await crypto.subtle.importKey(
+      "raw",
+      encoder.encode(secret),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["verify"]
+    );
+    return crypto.subtle.verify(
+      "HMAC",
+      key,
+      base64UrlToBytes(signature),
+      encoder.encode(value)
+    );
+  } catch {
+    return false;
+  }
 }
 
 function base64UrlEncode(value: string) {
@@ -110,4 +146,27 @@ function bytesToBase64Url(bytes: Uint8Array) {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function base64UrlToBytes(value: string) {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized.padEnd(
+    normalized.length + ((4 - (normalized.length % 4)) % 4),
+    "="
+  );
+  const binary = atob(padded);
+  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+}
+
+function constantTimeEqual(left: string, right: string) {
+  const leftBytes = encoder.encode(left);
+  const rightBytes = encoder.encode(right);
+  const length = Math.max(leftBytes.length, rightBytes.length);
+  let difference = leftBytes.length ^ rightBytes.length;
+
+  for (let index = 0; index < length; index += 1) {
+    difference |= (leftBytes[index] ?? 0) ^ (rightBytes[index] ?? 0);
+  }
+
+  return difference === 0;
 }

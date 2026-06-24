@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { AUTH_COOKIE_NAME, verifyInternalToken, verifySessionToken } from "@/lib/auth/session";
 
 const PUBLIC_PATHS = new Set(["/login", "/api/auth/login", "/api/auth/logout", "/api/health"]);
+const INTERNAL_SERVICE_READ_PATHS = new Set(["/api/watchlist", "/api/universes"]);
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -10,7 +11,18 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (pathname.startsWith("/api/") && verifyInternalToken(request.headers.get("x-internal-token"))) {
+  if (pathname.startsWith("/api/internal/")) {
+    if (verifyInternalToken(request.headers.get("x-internal-token"))) {
+      return NextResponse.next();
+    }
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (
+    request.method === "GET" &&
+    INTERNAL_SERVICE_READ_PATHS.has(pathname) &&
+    verifyInternalToken(request.headers.get("x-internal-token"))
+  ) {
     return NextResponse.next();
   }
 

@@ -5,8 +5,9 @@ Modeling Prep data. It turns fundamentals, valuation, analyst expectations,
 events, SEC filings, news, insider transactions, congressional disclosures, and
 technical context into an evidence-backed investment thesis workflow.
 
-The app runs with bundled demo data by default, so it can be explored without
-API keys. Add a FMP key to use live data.
+The application is configured for live FMP data by default. A valid FMP key is
+required for a healthy production start. Bundled mock data is available only
+when `FMP_USE_MOCKS=true` is set explicitly for development or tests.
 
 ## Quick Start
 
@@ -59,8 +60,8 @@ The compose stack includes:
 - Refreshing is module-based: pages serve PostgreSQL snapshots, expired modules are
   queued, and the worker merges successful FMP updates back into the snapshot.
 
-Postgres is initialized from `db/init.sql`. If Postgres is unavailable, the app
-falls back to an in-memory demo watchlist so the research experience still runs.
+Postgres is initialized from `db/init.sql`. Memory fallback starts empty and is
+intended only for development continuity; production readiness requires Postgres.
 
 ## Environment
 
@@ -73,12 +74,15 @@ cp .env.example .env.local
 Important variables:
 
 - `FMP_API_KEY`: Financial Modeling Prep API key.
-- `FMP_USE_MOCKS`: `true` by default. Set to `false` to use live FMP data.
+- `FMP_USE_MOCKS`: keep `false` in production. Set to `true` only for explicit development tests.
+- `FMP_MIN_REQUEST_INTERVAL_MS`: minimum spacing between FMP request starts; defaults to 80 ms.
 - `ADMIN_PASSPHRASE`: single-admin passphrase. Use this to enter `/admin` and rebuild access codes.
 - `AUTH_SECRET`: random secret used to sign the HttpOnly session cookie.
 - `AUTH_SECURE_COOKIES`: set to `true` when serving over HTTPS.
 - `INTERNAL_API_TOKEN`: shared token used by the worker for protected internal API calls.
 - `DATABASE_URL`: optional outside Docker. If missing/unavailable, memory fallback is used.
+- `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`: Docker Postgres credentials;
+  they must match `DATABASE_URL`.
 - `DATABASE_DISABLED`: set to `true` to force memory fallback.
 - `REDIS_URL`: optional outside Docker. If missing/unavailable, memory cache fallback is used.
 - `REDIS_DISABLED`: set to `true` to force memory cache fallback.
@@ -88,6 +92,19 @@ Important variables:
 - `WORKER_UNIVERSE_SYNC_INTERVAL_MS`: system universe constituent sync interval.
 - `WORKER_SYSTEM_BATCH_SIZE`: rotating system-universe symbols planned per cycle.
 - `WORKER_JOB_CLAIM_LIMIT`: module jobs claimed per worker cycle.
+
+Production requirements:
+
+- `AUTH_SECRET` and `INTERNAL_API_TOKEN` must each contain at least 32 characters.
+- `ADMIN_PASSPHRASE` must contain at least 12 characters.
+- Serve the application through HTTPS and set `AUTH_SECURE_COOKIES=true`.
+- Production readiness requires `FMP_USE_MOCKS=false` and a configured `FMP_API_KEY`;
+  `/api/health` returns HTTP 503 when critical production configuration is missing.
+- Run behind an HTTPS reverse proxy, enable automated Postgres backups, and monitor
+  `/api/health` plus worker logs.
+- The current authorization model is approved for a private single-tenant deployment.
+  Public multi-user deployment still requires individual accounts, data ownership,
+  audit logs, and per-user authorization.
 
 ## Product Docs
 
@@ -104,7 +121,7 @@ The current MVP includes:
 - Passphrase login gate with signed HttpOnly session cookies.
 - Time-limited dynamic access codes that only admins can rebuild.
 - Internal API token path for background worker refreshes.
-- U.S. stock search with live/mock data fallback and U.S. exchange prioritization.
+- U.S. stock search with U.S. exchange prioritization; live mode does not inject mock results.
 - Company research page.
 - Watchlist page with add/remove support and optional Postgres persistence.
 - Research screens for quality, expectation momentum, valuation questions, and event risk.

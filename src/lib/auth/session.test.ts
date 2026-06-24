@@ -29,4 +29,15 @@ describe("auth session", () => {
 
     expect(await verifySessionToken(tampered)).toBeNull();
   });
+
+  it("caps viewer sessions to the requested access-code lifetime", async () => {
+    vi.stubEnv("AUTH_SECRET", "test-secret");
+    const now = Date.now();
+
+    const { createSessionToken, verifySessionToken } = await import("@/lib/auth/session");
+    const token = await createSessionToken("access-code:123", "viewer", now, 60);
+    const session = await verifySessionToken(token);
+
+    expect(session?.expiresAt).toBe(now + 60_000);
+  });
 });

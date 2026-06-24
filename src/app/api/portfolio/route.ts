@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { portfolioInputSchema } from "@/lib/api-validation";
 import { upsertPortfolioHolding } from "@/lib/server/db";
 import { getPortfolioModel } from "@/lib/server/portfolio";
 
@@ -9,22 +10,20 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const body = (await request.json().catch(() => ({}))) as {
-    symbol?: string;
-    shares?: number;
-    averageCost?: number | null;
-    notes?: string;
-  };
+  const parsed = portfolioInputSchema.safeParse(
+    await request.json().catch(() => ({}))
+  );
+  if (!parsed.success) {
+    return NextResponse.json({ error: "持仓数据格式不正确。" }, { status: 400 });
+  }
 
   await upsertPortfolioHolding({
-    symbol: body.symbol ?? "",
-    shares: Number(body.shares),
-    averageCost:
-      body.averageCost === undefined || body.averageCost === null ? null : Number(body.averageCost),
-    notes: body.notes
+    symbol: parsed.data.symbol,
+    shares: parsed.data.shares,
+    averageCost: parsed.data.averageCost,
+    notes: parsed.data.notes
   });
   const portfolio = await getPortfolioModel();
 
   return NextResponse.json(portfolio);
 }
-

@@ -961,10 +961,13 @@ Current implementation uses an admin passphrase plus dynamic access-code gate:
 
 - Browser access is protected by a signed HttpOnly `thesislens_session` cookie.
 - `/login`, `/api/auth/login`, `/api/auth/logout`, and `/api/health` are public.
-- Other pages and API routes require a valid admin session.
+- Other pages and user-facing API routes require a valid signed session.
 - Admins enter with `ADMIN_PASSPHRASE` and can rebuild time-limited access codes.
 - Access-code sessions have viewer permissions and cannot enter `/admin` or `/api/admin/*`.
-- Background workers call protected API routes with `x-internal-token`.
+- Viewer session expiry never exceeds the originating access-code expiry.
+- Login attempts are rate-limited through Redis with an in-memory fallback.
+- `/api/internal/*` only accepts `x-internal-token`; viewer and admin cookies do not bypass it.
+- The worker token additionally has read-only access to `/api/watchlist` and `/api/universes`.
 - Public HTTPS deployments should set `AUTH_SECURE_COOKIES=true`.
 
 Future multi-user releases should replace the single-admin environment model with persisted users, password hashes or an external identity provider, role-based access control, audit logs, and per-user data ownership.

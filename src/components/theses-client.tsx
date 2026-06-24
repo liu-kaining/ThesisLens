@@ -20,35 +20,55 @@ export function ThesesClient({ initialTheses }: { initialTheses: Thesis[] }) {
   const [title, setTitle] = useState("");
   const [thesisText, setThesisText] = useState("");
   const [status, setStatus] = useState<Thesis["status"]>("active");
+  const [error, setError] = useState("");
   const [isPending, startTransition] = useTransition();
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     startTransition(async () => {
-      const response = await fetch("/api/theses", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbol, title, thesisText, status })
-      });
-      const payload = (await response.json()) as { theses: Thesis[] };
-      setTheses(payload.theses ?? []);
-      setSymbol("");
-      setTitle("");
-      setThesisText("");
-      setStatus("active");
+      setError("");
+      try {
+        const response = await fetch("/api/theses", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbol, title, thesisText, status })
+        });
+        if (!response.ok) throw new Error("保存失败");
+        const payload = (await response.json()) as { theses: Thesis[] };
+        setTheses(payload.theses ?? []);
+        setSymbol("");
+        setTitle("");
+        setThesisText("");
+        setStatus("active");
+      } catch {
+        setError("Thesis 保存失败，请稍后重试。");
+      }
     });
   }
 
   function remove(id: string) {
     startTransition(async () => {
-      const response = await fetch(`/api/theses/${encodeURIComponent(id)}`, { method: "DELETE" });
-      const payload = (await response.json()) as { theses: Thesis[] };
-      setTheses(payload.theses ?? []);
+      setError("");
+      try {
+        const response = await fetch(`/api/theses/${encodeURIComponent(id)}`, {
+          method: "DELETE"
+        });
+        if (!response.ok) throw new Error("删除失败");
+        const payload = (await response.json()) as { theses: Thesis[] };
+        setTheses(payload.theses ?? []);
+      } catch {
+        setError("Thesis 删除失败，数据没有被修改。");
+      }
     });
   }
 
   return (
     <div className="grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
+      {error ? (
+        <div className="rounded-md border border-brick/30 bg-brick/5 p-3 text-sm text-brick lg:col-span-2">
+          {error}
+        </div>
+      ) : null}
       <form onSubmit={submit} className="rounded-md border border-line bg-white p-5 shadow-sm">
         <h2 className="text-sm font-semibold text-ink">保存 Thesis</h2>
         <p className="mt-2 text-sm leading-6 text-muted">

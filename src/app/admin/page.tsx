@@ -71,7 +71,7 @@ export default async function AdminPage() {
               <p>普通页面、股票页、研究 API、观察列表、组合、提醒和设置页都需要登录。</p>
               <p>访问口令只提供 viewer 权限，不能进入管理员页或重建口令。</p>
               <p>后台 worker 不使用管理员口令，只能通过 INTERNAL_API_TOKEN 调用内部 API。</p>
-              <p>当前版本仍是口令模式；多人协作上线前需要引入用户表、角色、审计日志和数据归属。</p>
+              <p>当前版本仍是共享口令、单数据空间模式；多人协作上线前需要引入独立用户、角色、审计日志和数据归属。</p>
             </div>
           </div>
         </section>
@@ -82,7 +82,7 @@ export default async function AdminPage() {
             {[
               "ADMIN_PASSPHRASE、AUTH_SECRET、INTERNAL_API_TOKEN 必须换成生产级随机值。",
               "生产环境建议启用 HTTPS，并设置 AUTH_SECURE_COOKIES=true。",
-              "如果要开放给多人使用，需要把 demo-user 替换成真实用户体系。",
+              "如果要开放给多人使用，需要升级为真实用户体系和独立数据空间。",
               "FMP 数据再分发、展示范围和缓存策略需要按订阅条款复核。"
             ].map((item) => (
               <div key={item} className="rounded-md border border-line bg-canvas p-3 text-sm leading-6 text-muted">

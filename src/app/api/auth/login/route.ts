@@ -6,6 +6,7 @@ import {
   isAuthConfigured,
   verifyAdminPassphrase
 } from "@/lib/auth/session";
+import { consumeRateLimit, resetRateLimit } from "@/lib/server/cache";
 import { verifyAccessCode } from "@/lib/server/db";
 
 export async function POST(request: Request) {
@@ -21,16 +22,52 @@ export async function POST(request: Request) {
     password?: string;
     next?: string;
   };
+  const rateLimitKey = `auth:login:${clientIdentifier(request)}`;
+  const rateLimit = await consumeRateLimit(rateLimitKey, 10, 15 * 60);
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: "登录尝试过多，请稍后再试。" },
+      {
+        status: 429,
+        headers: { "retry-after": String(rateLimit.retryAfterSeconds) }
+      }
+    );
+  }
   const passphrase = body.passphrase ?? body.password ?? "";
   const admin = verifyAdminPassphrase(passphrase);
-  const accessCode = admin ? null : await verifyAccessCode(passphrase);
+  let accessCode = null;
+  if (!admin) {
+    try {
+      accessCode = await verifyAccessCode(passphrase);
+    } catch {
+      return NextResponse.json(
+        { error: "访问口令服务暂不可用，请稍后重试。" },
+        { status: 503 }
+      );
+    }
+  }
 
   if (!admin && !accessCode) {
     return NextResponse.json({ error: "口令不正确或已经过期。" }, { status: 401 });
   }
 
   const role = admin ? "admin" : "viewer";
-  const token = await createSessionToken(admin ? "admin" : `access-code:${accessCode?.id}`, role);
+  const viewerMaxAgeSeconds = accessCode
+    ? Math.max(
+        1,
+        Math.floor((new Date(accessCode.expiresAt).getTime() - Date.now()) / 1000)
+      )
+    : SESSION_MAX_AGE_SECONDS;
+  const sessionMaxAgeSeconds = admin
+    ? SESSION_MAX_AGE_SECONDS
+    : Math.min(SESSION_MAX_AGE_SECONDS, viewerMaxAgeSeconds);
+  const token = await createSessionToken(
+    admin ? "admin" : `access-code:${accessCode?.id}`,
+    role,
+    Date.now(),
+    sessionMaxAgeSeconds
+  );
+  await resetRateLimit(rateLimitKey);
   const response = NextResponse.json({
     ok: true,
     role,
@@ -41,10 +78,20 @@ export async function POST(request: Request) {
     sameSite: "lax",
     secure: shouldUseSecureCookies(),
     path: "/",
-    maxAge: SESSION_MAX_AGE_SECONDS
+    maxAge: sessionMaxAgeSeconds
   });
 
   return response;
+}
+
+function clientIdentifier(request: Request) {
+  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  return (
+    forwarded ||
+    request.headers.get("cf-connecting-ip") ||
+    request.headers.get("x-real-ip") ||
+    "unknown"
+  ).slice(0, 80);
 }
 
 function safeNextPath(value?: string) {

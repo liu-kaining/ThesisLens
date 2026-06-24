@@ -34,6 +34,7 @@ export function WatchlistClient({ initialItems }: WatchlistClientProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const [notes, setNotes] = useState("");
+  const [error, setError] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<WatchlistItem | null>(null);
   const [isPending, startTransition] = useTransition();
   const normalizedQuery = useMemo(() => symbol.trim(), [symbol]);
@@ -80,28 +81,42 @@ export function WatchlistClient({ initialItems }: WatchlistClientProps) {
     if (!normalized) return;
 
     startTransition(async () => {
-      await fetch("/api/watchlist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbol: normalized, notes })
-      });
-      const response = await fetch("/api/watchlist");
-      const payload = (await response.json()) as { items: WatchlistItem[] };
-      setItems(payload.items ?? []);
-      setSymbol("");
-      setResults([]);
-      setSearchOpen(false);
-      setNotes("");
+      setError("");
+      try {
+        const saveResponse = await fetch("/api/watchlist", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbol: normalized, notes })
+        });
+        if (!saveResponse.ok) throw new Error("保存失败");
+        const response = await fetch("/api/watchlist");
+        if (!response.ok) throw new Error("读取失败");
+        const payload = (await response.json()) as { items: WatchlistItem[] };
+        setItems(payload.items ?? []);
+        setSymbol("");
+        setResults([]);
+        setSearchOpen(false);
+        setNotes("");
+      } catch {
+        setError("观察列表更新失败，请稍后重试。");
+      }
     });
   }
 
   function removeItem(itemSymbol: string) {
     startTransition(async () => {
-      await fetch(`/api/watchlist/items/${encodeURIComponent(itemSymbol)}`, {
-        method: "DELETE"
-      });
-      setItems((current) => current.filter((item) => item.symbol !== itemSymbol));
-      setDeleteTarget(null);
+      setError("");
+      try {
+        const response = await fetch(
+          `/api/watchlist/items/${encodeURIComponent(itemSymbol)}`,
+          { method: "DELETE" }
+        );
+        if (!response.ok) throw new Error("删除失败");
+        setItems((current) => current.filter((item) => item.symbol !== itemSymbol));
+        setDeleteTarget(null);
+      } catch {
+        setError("删除失败，数据没有被修改。");
+      }
     });
   }
 
@@ -112,6 +127,11 @@ export function WatchlistClient({ initialItems }: WatchlistClientProps) {
 
   return (
     <div className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
+      {error ? (
+        <div className="rounded-md border border-brick/30 bg-brick/5 p-3 text-sm text-brick lg:col-span-2">
+          {error}
+        </div>
+      ) : null}
       <form onSubmit={addItem} className="rounded-md border border-line bg-white p-5 shadow-sm">
         <h2 className="text-sm font-semibold text-ink">添加研究标的</h2>
         <p className="mt-2 text-sm leading-6 text-muted">

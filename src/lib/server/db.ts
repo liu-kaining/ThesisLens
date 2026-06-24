@@ -146,122 +146,10 @@ export type DataSyncJobRecord = {
   updatedAt: string;
 };
 
-const memoryWatchlist = new Map<string, WatchlistItemRecord>([
-  [
-    "AAPL",
-    {
-      id: "memory-aapl",
-      symbol: "AAPL",
-      notes: "Quality and capital return anchor.",
-      createdAt: new Date().toISOString()
-    }
-  ],
-  [
-    "MSFT",
-    {
-      id: "memory-msft",
-      symbol: "MSFT",
-      notes: "AI/cloud estimate revision monitor.",
-      createdAt: new Date().toISOString()
-    }
-  ],
-  [
-    "NVDA",
-    {
-      id: "memory-nvda",
-      symbol: "NVDA",
-      notes: "Exceptional growth with valuation sensitivity.",
-      createdAt: new Date().toISOString()
-    }
-  ]
-]);
-
-const memoryTheses = new Map<string, SavedThesisRecord>([
-  [
-    "memory-thesis-msft",
-    {
-      id: "memory-thesis-msft",
-      symbol: "MSFT",
-      title: "AI cloud operating leverage",
-      thesisText:
-        "Monitor whether Azure and AI infrastructure growth converts into durable margin expansion without valuation overreach.",
-      status: "active",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    }
-  ],
-  [
-    "memory-thesis-nvda",
-    {
-      id: "memory-thesis-nvda",
-      symbol: "NVDA",
-      title: "Demand durability vs valuation",
-      thesisText:
-        "The thesis depends on whether AI accelerator demand remains strong enough to defend elevated expectations.",
-      status: "active",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    }
-  ]
-]);
-
-const memoryPortfolio = new Map<string, PortfolioHoldingRecord>([
-  [
-    "AAPL",
-    {
-      id: "memory-holding-aapl",
-      symbol: "AAPL",
-      shares: 12,
-      averageCost: 172.5,
-      notes: "Core quality exposure",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    }
-  ],
-  [
-    "MSFT",
-    {
-      id: "memory-holding-msft",
-      symbol: "MSFT",
-      shares: 8,
-      averageCost: 405,
-      notes: "Cloud/AI compounder",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    }
-  ]
-]);
-
-const memoryAlerts = new Map<string, AlertRuleRecord>([
-  [
-    "memory-alert-msft",
-    {
-      id: "memory-alert-msft",
-      symbol: "MSFT",
-      alertType: "expectations_score",
-      threshold: 70,
-      direction: "above",
-      note: "Notify when expectation momentum becomes very strong.",
-      enabled: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    }
-  ],
-  [
-    "memory-alert-nvda",
-    {
-      id: "memory-alert-nvda",
-      symbol: "NVDA",
-      alertType: "valuation_score",
-      threshold: 45,
-      direction: "below",
-      note: "Watch for valuation stress.",
-      enabled: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    }
-  ]
-]);
+const memoryWatchlist = new Map<string, WatchlistItemRecord>();
+const memoryTheses = new Map<string, SavedThesisRecord>();
+const memoryPortfolio = new Map<string, PortfolioHoldingRecord>();
+const memoryAlerts = new Map<string, AlertRuleRecord>();
 
 const memoryAccessCodes = new Map<string, AccessCodeRecord>();
 const memoryResearchSnapshots = new Map<string, PersistedResearchSnapshotRecord>();
@@ -821,52 +709,31 @@ async function ensureSchema() {
           ]
         );
       }
-      for (const thesis of memoryTheses.values()) {
-        await pg.query(
-          `
-          INSERT INTO saved_theses (id, user_id, symbol, title, thesis_text, status)
-          VALUES ($1, $2, $3, $4, $5, $6)
-          ON CONFLICT (id) DO NOTHING
-          `,
-          [thesis.id, DEMO_USER_ID, thesis.symbol, thesis.title, thesis.thesisText, thesis.status]
+      await pg.query(
+        `
+        DELETE FROM saved_theses
+        WHERE id IN (
+          'demo-thesis-msft',
+          'demo-thesis-nvda',
+          'memory-thesis-msft',
+          'memory-thesis-nvda'
         );
-      }
-      for (const holding of memoryPortfolio.values()) {
-        await pg.query(
-          `
-          INSERT INTO portfolio_holdings (id, user_id, symbol, shares, average_cost, notes)
-          VALUES ($1, $2, $3, $4, $5, $6)
-          ON CONFLICT (user_id, symbol) DO NOTHING
-          `,
-          [
-            holding.id,
-            DEMO_USER_ID,
-            holding.symbol,
-            holding.shares,
-            holding.averageCost ?? null,
-            holding.notes ?? null
-          ]
+        DELETE FROM portfolio_holdings
+        WHERE id IN (
+          'demo-holding-aapl',
+          'demo-holding-msft',
+          'memory-holding-aapl',
+          'memory-holding-msft'
         );
-      }
-      for (const alert of memoryAlerts.values()) {
-        await pg.query(
-          `
-          INSERT INTO alert_rules (id, user_id, symbol, alert_type, threshold, direction, note, enabled)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-          ON CONFLICT (id) DO NOTHING
-          `,
-          [
-            alert.id,
-            DEMO_USER_ID,
-            alert.symbol,
-            alert.alertType,
-            alert.threshold ?? null,
-            alert.direction,
-            alert.note ?? null,
-            alert.enabled
-          ]
+        DELETE FROM alert_rules
+        WHERE id IN (
+          'demo-alert-msft-expectations',
+          'demo-alert-nvda-valuation',
+          'memory-alert-msft',
+          'memory-alert-nvda'
         );
-      }
+        `
+      );
 
       return true;
     } catch {
@@ -874,7 +741,9 @@ async function ensureSchema() {
     }
   })();
 
-  return schemaReady;
+  const ready = await schemaReady;
+  if (!ready) schemaReady = null;
+  return ready;
 }
 
 export async function getDatabaseHealth() {
@@ -990,8 +859,8 @@ export async function addWatchlistItem(symbol: string, notes?: string): Promise<
       `,
       [item.id, DEMO_WATCHLIST_ID, item.symbol, item.notes ?? null]
     );
-  } catch {
-    memoryWatchlist.set(normalized, item);
+  } catch (error) {
+    throw new Error("Failed to save watchlist item", { cause: error });
   }
 
   return getWatchlist();
@@ -1012,8 +881,8 @@ export async function removeWatchlistItem(symbol: string): Promise<WatchlistReco
       DEMO_WATCHLIST_ID,
       normalized
     ]);
-  } catch {
-    memoryWatchlist.delete(normalized);
+  } catch (error) {
+    throw new Error("Failed to remove watchlist item", { cause: error });
   }
 
   return getWatchlist();
@@ -1167,7 +1036,7 @@ export async function getCompanyResearchSnapshot(
       [normalized]
     );
     const row = rows.rows[0];
-    if (!row) return null;
+    if (!row) return memoryResearchSnapshots.get(normalized) ?? null;
 
     return {
       symbol: row.symbol,
@@ -1304,7 +1173,7 @@ export async function getCompanyDataModuleStates(
       [normalized]
     );
 
-    return rows.rows.map((row) => ({
+    const persisted = rows.rows.map((row) => ({
       symbol: row.symbol,
       moduleKey: row.module_key,
       status: row.status,
@@ -1315,6 +1184,10 @@ export async function getCompanyDataModuleStates(
       attemptCount: Number(row.attempt_count),
       updatedAt: row.updated_at.toISOString()
     }));
+    if (persisted.length > 0) return persisted;
+    return Array.from(memoryCompanyDataModules.values()).filter(
+      (state) => state.symbol === normalized
+    );
   } catch {
     return Array.from(memoryCompanyDataModules.values()).filter(
       (state) => state.symbol === normalized
@@ -1341,6 +1214,11 @@ export async function enqueueDataSyncJobs(
       const id = `${symbol}:${job.moduleKey}`;
       const existing = memoryDataSyncJobs.get(id);
       if (existing?.status === "running") continue;
+      const failedCooldownActive =
+        existing?.status === "failed" &&
+        existing.attempts >= existing.maxAttempts &&
+        Date.now() - new Date(existing.updatedAt).getTime() < 24 * 60 * 60 * 1000;
+      if (failedCooldownActive) continue;
       if (
         existing?.status === "failed" &&
         new Date(existing.scheduledFor).getTime() > Date.now()
@@ -1358,7 +1236,9 @@ export async function enqueueDataSyncJobs(
         attempts:
           existing?.status === "completed" ||
           (existing?.status === "failed" &&
-            new Date(existing.scheduledFor).getTime() <= Date.now())
+            existing.attempts >= existing.maxAttempts &&
+            Date.now() - new Date(existing.updatedAt).getTime() >=
+              24 * 60 * 60 * 1000)
             ? 0
             : existing?.attempts ?? 0,
         maxAttempts: existing?.maxAttempts ?? 5,
@@ -1384,17 +1264,27 @@ export async function enqueueDataSyncJobs(
             WHEN data_sync_jobs.status = 'running' THEN 'running'
             WHEN data_sync_jobs.status = 'failed' AND data_sync_jobs.scheduled_for > NOW()
               THEN 'failed'
+            WHEN data_sync_jobs.status = 'failed'
+              AND data_sync_jobs.attempts >= data_sync_jobs.max_attempts
+              AND data_sync_jobs.updated_at > NOW() - INTERVAL '24 hours'
+              THEN 'failed'
             ELSE 'queued'
           END,
           scheduled_for = CASE
             WHEN data_sync_jobs.status = 'running' THEN data_sync_jobs.scheduled_for
             WHEN data_sync_jobs.status = 'failed' AND data_sync_jobs.scheduled_for > NOW()
               THEN data_sync_jobs.scheduled_for
+            WHEN data_sync_jobs.status = 'failed'
+              AND data_sync_jobs.attempts >= data_sync_jobs.max_attempts
+              AND data_sync_jobs.updated_at > NOW() - INTERVAL '24 hours'
+              THEN data_sync_jobs.scheduled_for
             ELSE NOW()
           END,
           attempts = CASE
             WHEN data_sync_jobs.status = 'completed' THEN 0
-            WHEN data_sync_jobs.status = 'failed' AND data_sync_jobs.scheduled_for <= NOW()
+            WHEN data_sync_jobs.status = 'failed'
+              AND data_sync_jobs.attempts >= data_sync_jobs.max_attempts
+              AND data_sync_jobs.updated_at <= NOW() - INTERVAL '24 hours'
               THEN 0
             ELSE data_sync_jobs.attempts
           END,
@@ -1404,39 +1294,10 @@ export async function enqueueDataSyncJobs(
         [`${symbol}:${job.moduleKey}`, symbol, job.moduleKey, job.priority, job.source]
       );
     }
-  } catch {
-    return enqueueDataSyncJobsMemory(jobs);
+  } catch (error) {
+    throw new Error("Failed to enqueue data sync jobs", { cause: error });
   }
 
-  return jobs;
-}
-
-function enqueueDataSyncJobsMemory(
-  jobs: Array<{
-    symbol: string;
-    moduleKey: DataModuleKey;
-    priority: number;
-    source: string;
-  }>
-) {
-  const now = new Date().toISOString();
-  for (const job of jobs) {
-    const symbol = job.symbol.trim().toUpperCase();
-    const id = `${symbol}:${job.moduleKey}`;
-    const existing = memoryDataSyncJobs.get(id);
-    memoryDataSyncJobs.set(id, {
-      id,
-      symbol,
-      moduleKey: job.moduleKey,
-      priority: Math.max(existing?.priority ?? 0, job.priority),
-      source: job.source,
-      status: "queued",
-      scheduledFor: now,
-      attempts: existing?.status === "completed" ? 0 : existing?.attempts ?? 0,
-      maxAttempts: existing?.maxAttempts ?? 5,
-      updatedAt: now
-    });
-  }
   return jobs;
 }
 
@@ -1532,8 +1393,8 @@ export async function claimDataSyncJobs(limit = 30): Promise<DataSyncJobRecord[]
       lastError: row.last_error,
       updatedAt: row.updated_at.toISOString()
     }));
-  } catch {
-    return [];
+  } catch (error) {
+    throw new Error("Failed to claim data sync jobs", { cause: error });
   }
 }
 
@@ -1583,8 +1444,10 @@ export async function finishDataSyncJobs(
           result.ok ? null : result.error ?? "Unknown sync error"
         ]
       );
-    } catch {
-      // A later planner pass can safely enqueue the module again.
+    } catch (error) {
+      throw new Error(`Failed to finish data sync job ${job.id}`, {
+        cause: error
+      });
     }
   }
 }
@@ -1929,17 +1792,25 @@ export async function createAccessCode(input: {
     return { code, record: publicAccessCode(record) };
   }
 
+  const client = await pg.connect();
   try {
-    await pg.query("UPDATE access_codes SET revoked_at = NOW() WHERE revoked_at IS NULL AND expires_at > NOW()");
-    await pg.query(
+    await client.query("BEGIN");
+    await client.query(
+      "UPDATE access_codes SET revoked_at = NOW() WHERE revoked_at IS NULL AND expires_at > NOW()"
+    );
+    await client.query(
       `
       INSERT INTO access_codes (id, code_hash, created_by, expires_at)
       VALUES ($1, $2, $3, $4)
       `,
       [record.id, record.codeHash, record.createdBy, record.expiresAt]
     );
-  } catch {
-    memoryAccessCodes.set(record.id, record);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw new Error("Failed to create access code", { cause: error });
+  } finally {
+    client.release();
   }
 
   return { code, record: publicAccessCode(record) };
@@ -2034,8 +1905,8 @@ export async function verifyAccessCode(code: string): Promise<AccessCodePublicRe
       expiresAt: row.expires_at.toISOString(),
       revokedAt: row.revoked_at?.toISOString() ?? null
     });
-  } catch {
-    return null;
+  } catch (error) {
+    throw new Error("Failed to verify access code", { cause: error });
   }
 }
 
@@ -2123,8 +1994,8 @@ export async function addSavedThesis(input: {
       `,
       [thesis.id, DEMO_USER_ID, thesis.symbol, thesis.title, thesis.thesisText, thesis.status]
     );
-  } catch {
-    memoryTheses.set(thesis.id, thesis);
+  } catch (error) {
+    throw new Error("Failed to save thesis", { cause: error });
   }
 
   return getSavedTheses();
@@ -2141,8 +2012,8 @@ export async function deleteSavedThesis(id: string): Promise<SavedThesisRecord[]
 
   try {
     await pg.query("DELETE FROM saved_theses WHERE id = $1 AND user_id = $2", [id, DEMO_USER_ID]);
-  } catch {
-    memoryTheses.delete(id);
+  } catch (error) {
+    throw new Error("Failed to delete thesis", { cause: error });
   }
 
   return getSavedTheses();
@@ -2229,8 +2100,8 @@ export async function upsertPortfolioHolding(input: {
       `,
       [holding.id, DEMO_USER_ID, holding.symbol, holding.shares, holding.averageCost ?? null, holding.notes ?? null]
     );
-  } catch {
-    memoryPortfolio.set(symbol, holding);
+  } catch (error) {
+    throw new Error("Failed to save portfolio holding", { cause: error });
   }
 
   return getPortfolioHoldings();
@@ -2251,8 +2122,8 @@ export async function deletePortfolioHolding(symbol: string): Promise<PortfolioH
       DEMO_USER_ID,
       normalized
     ]);
-  } catch {
-    memoryPortfolio.delete(normalized);
+  } catch (error) {
+    throw new Error("Failed to delete portfolio holding", { cause: error });
   }
 
   return getPortfolioHoldings();
@@ -2352,8 +2223,8 @@ export async function addAlertRule(input: {
         alert.enabled
       ]
     );
-  } catch {
-    memoryAlerts.set(alert.id, alert);
+  } catch (error) {
+    throw new Error("Failed to save alert rule", { cause: error });
   }
 
   return getAlertRules();
@@ -2370,8 +2241,8 @@ export async function deleteAlertRule(id: string): Promise<AlertRuleRecord[]> {
 
   try {
     await pg.query("DELETE FROM alert_rules WHERE id = $1 AND user_id = $2", [id, DEMO_USER_ID]);
-  } catch {
-    memoryAlerts.delete(id);
+  } catch (error) {
+    throw new Error("Failed to delete alert rule", { cause: error });
   }
 
   return getAlertRules();

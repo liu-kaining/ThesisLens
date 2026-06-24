@@ -405,21 +405,3 @@ DO UPDATE SET
   source_symbol = EXCLUDED.source_symbol,
   priority = EXCLUDED.priority,
   updated_at = NOW();
-
-INSERT INTO saved_theses (id, user_id, symbol, title, thesis_text, status)
-VALUES
-  ('demo-thesis-msft', 'demo-user', 'MSFT', 'AI cloud operating leverage', 'Monitor whether Azure and AI infrastructure growth converts into durable margin expansion without valuation overreach.', 'active'),
-  ('demo-thesis-nvda', 'demo-user', 'NVDA', 'Demand durability vs valuation', 'The thesis depends on whether AI accelerator demand remains strong enough to defend elevated expectations.', 'active')
-ON CONFLICT (id) DO NOTHING;
-
-INSERT INTO portfolio_holdings (id, user_id, symbol, shares, average_cost, notes)
-VALUES
-  ('demo-holding-aapl', 'demo-user', 'AAPL', 12, 172.50, 'Core quality exposure'),
-  ('demo-holding-msft', 'demo-user', 'MSFT', 8, 405.00, 'Cloud/AI compounder')
-ON CONFLICT (user_id, symbol) DO NOTHING;
-
-INSERT INTO alert_rules (id, user_id, symbol, alert_type, threshold, direction, note)
-VALUES
-  ('demo-alert-msft-expectations', 'demo-user', 'MSFT', 'expectations_score', 70, 'above', 'Notify when expectation momentum becomes very strong.'),
-  ('demo-alert-nvda-valuation', 'demo-user', 'NVDA', 'valuation_score', 45, 'below', 'Watch for valuation stress.')
-ON CONFLICT (id) DO NOTHING;

@@ -24,40 +24,60 @@ export function AlertsClient({ initialAlerts }: { initialAlerts: Alert[] }) {
   const [threshold, setThreshold] = useState("");
   const [direction, setDirection] = useState("above");
   const [note, setNote] = useState("");
+  const [error, setError] = useState("");
   const [isPending, startTransition] = useTransition();
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     startTransition(async () => {
-      const response = await fetch("/api/alerts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          symbol,
-          alertType,
-          threshold: threshold ? Number(threshold) : null,
-          direction,
-          note
-        })
-      });
-      const payload = (await response.json()) as { alerts: Alert[] };
-      setAlerts(payload.alerts ?? []);
-      setSymbol("");
-      setThreshold("");
-      setNote("");
+      setError("");
+      try {
+        const response = await fetch("/api/alerts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            symbol,
+            alertType,
+            threshold: threshold ? Number(threshold) : null,
+            direction,
+            note
+          })
+        });
+        if (!response.ok) throw new Error("保存失败");
+        const payload = (await response.json()) as { alerts: Alert[] };
+        setAlerts(payload.alerts ?? []);
+        setSymbol("");
+        setThreshold("");
+        setNote("");
+      } catch {
+        setError("提醒规则保存失败，请稍后重试。");
+      }
     });
   }
 
   function remove(id: string) {
     startTransition(async () => {
-      const response = await fetch(`/api/alerts/${encodeURIComponent(id)}`, { method: "DELETE" });
-      const payload = (await response.json()) as { alerts: Alert[] };
-      setAlerts(payload.alerts ?? []);
+      setError("");
+      try {
+        const response = await fetch(`/api/alerts/${encodeURIComponent(id)}`, {
+          method: "DELETE"
+        });
+        if (!response.ok) throw new Error("删除失败");
+        const payload = (await response.json()) as { alerts: Alert[] };
+        setAlerts(payload.alerts ?? []);
+      } catch {
+        setError("提醒规则删除失败，数据没有被修改。");
+      }
     });
   }
 
   return (
     <div className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
+      {error ? (
+        <div className="rounded-md border border-brick/30 bg-brick/5 p-3 text-sm text-brick lg:col-span-2">
+          {error}
+        </div>
+      ) : null}
       <form onSubmit={submit} className="rounded-md border border-line bg-white p-5 shadow-sm">
         <h2 className="text-sm font-semibold text-ink">创建提醒规则</h2>
         <div className="mt-5 grid gap-4 sm:grid-cols-2">

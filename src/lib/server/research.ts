@@ -39,9 +39,7 @@ function hasPersistableFmpData(snapshot: ResearchSnapshot) {
   const modules = snapshot.dataStatus.modules ?? [];
   const liveModules = modules.filter((module) => module.status === "live").length;
   const companyQuoteIsLive = modules.some(
-    (module) =>
-      (module.key === "quote" || module.key === "profile") &&
-      module.status === "live"
+    (module) => module.key === "quote" && module.status === "live"
   );
 
   return companyQuoteIsLive || liveModules >= 2;
@@ -78,11 +76,17 @@ export async function getCompanyResearch(symbol: string): Promise<EnrichedResear
   const cacheKey = `research:${normalized}`;
   const cached = snapshotCache.get(normalized);
   if (cached && cached.expiresAt > Date.now()) {
+    await enqueueDueDataSync([normalized], 100, "page_access").catch(() => {
+      // Cached reads should remain available if the queue is temporarily unavailable.
+    });
     return cached.value;
   }
 
   const distributedCached = await getJsonCache<EnrichedResearch>(cacheKey);
   if (distributedCached) {
+    await enqueueDueDataSync([normalized], 100, "page_access").catch(() => {
+      // Cached reads should remain available if the queue is temporarily unavailable.
+    });
     snapshotCache.set(normalized, {
       expiresAt: Date.now() + FIVE_MINUTES,
       value: distributedCached
@@ -92,7 +96,9 @@ export async function getCompanyResearch(symbol: string): Promise<EnrichedResear
 
   const stored = await getCompanyResearchSnapshot(normalized);
   if (stored) {
-    await enqueueDueDataSync([normalized], 100, "page_access");
+    await enqueueDueDataSync([normalized], 100, "page_access").catch(() => {
+      // Serving a durable snapshot must not depend on queue availability.
+    });
     snapshotCache.set(normalized, {
       expiresAt: Date.now() + FIVE_MINUTES,
       value: stored.research
@@ -113,7 +119,9 @@ export async function getCompanyResearch(symbol: string): Promise<EnrichedResear
 
     if (persisted) {
       value = freshResearch;
-      await enqueueDueDataSync([normalized], 100, "cold_page_access");
+      await enqueueDueDataSync([normalized], 100, "cold_page_access").catch(() => {
+        // The next worker planning cycle will retry queueing deeper modules.
+      });
     } else {
       value = freshResearch;
     }

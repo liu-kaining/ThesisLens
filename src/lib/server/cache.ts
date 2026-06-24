@@ -16,6 +16,7 @@ type CacheHealth =
 let redis: Redis | null = null;
 let redisDisabled = false;
 const memoryCache = new Map<string, { expiresAt: number; value: string }>();
+const memoryRateLimits = new Map<string, { count: number; expiresAt: number }>();
 
 function isRedisEnabled() {
   return Boolean(process.env.REDIS_URL) && process.env.REDIS_DISABLED !== "true" && !redisDisabled;
@@ -139,6 +140,66 @@ export async function deleteCache(key: string) {
   }
 }
 
+export async function consumeRateLimit(
+  key: string,
+  limit: number,
+  windowSeconds: number
+) {
+  const client = getRedis();
+
+  if (client) {
+    try {
+      if (client.status === "wait") {
+        await client.connect();
+      }
+      const count = await client.incr(key);
+      if (count === 1) await client.expire(key, windowSeconds);
+      const ttl = await client.ttl(key);
+      return {
+        allowed: count <= limit,
+        remaining: Math.max(0, limit - count),
+        retryAfterSeconds: Math.max(1, ttl)
+      };
+    } catch {
+      redisDisabled = true;
+      client.disconnect();
+      redis = null;
+    }
+  }
+
+  const now = Date.now();
+  const existing = memoryRateLimits.get(key);
+  const state =
+    !existing || existing.expiresAt <= now
+      ? { count: 0, expiresAt: now + windowSeconds * 1000 }
+      : existing;
+  state.count += 1;
+  memoryRateLimits.set(key, state);
+
+  return {
+    allowed: state.count <= limit,
+    remaining: Math.max(0, limit - state.count),
+    retryAfterSeconds: Math.max(1, Math.ceil((state.expiresAt - now) / 1000))
+  };
+}
+
+export async function resetRateLimit(key: string) {
+  memoryRateLimits.delete(key);
+  const client = getRedis();
+  if (!client) return;
+
+  try {
+    if (client.status === "wait") {
+      await client.connect();
+    }
+    await client.del(key);
+  } catch {
+    redisDisabled = true;
+    client.disconnect();
+    redis = null;
+  }
+}
+
 export async function getCacheStats() {
   const health = await getCacheHealth();
   return {
@@ -146,4 +207,3 @@ export async function getCacheStats() {
     memoryKeys: memoryCache.size
   };
 }
-

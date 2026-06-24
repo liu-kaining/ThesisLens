@@ -1,12 +1,16 @@
 const appBaseUrl = process.env.APP_BASE_URL ?? "http://app:3000";
-const intervalMs = Number(process.env.WORKER_REFRESH_INTERVAL_MS ?? 5 * 60 * 1000);
-const initialDelayMs = Number(process.env.WORKER_INITIAL_DELAY_MS ?? 10_000);
-const maxWatchlistSymbols = Number(process.env.WORKER_MAX_SYMBOLS ?? 25);
-const universeSyncIntervalMs = Number(
-  process.env.WORKER_UNIVERSE_SYNC_INTERVAL_MS ?? 24 * 60 * 60 * 1000
+const intervalMs = positiveNumber(
+  process.env.WORKER_REFRESH_INTERVAL_MS,
+  5 * 60 * 1000
 );
-const systemBatchSize = Number(process.env.WORKER_SYSTEM_BATCH_SIZE ?? 5);
-const jobClaimLimit = Number(process.env.WORKER_JOB_CLAIM_LIMIT ?? 100);
+const initialDelayMs = nonNegativeNumber(process.env.WORKER_INITIAL_DELAY_MS, 10_000);
+const maxWatchlistSymbols = nonNegativeNumber(process.env.WORKER_MAX_SYMBOLS, 25);
+const universeSyncIntervalMs = positiveNumber(
+  process.env.WORKER_UNIVERSE_SYNC_INTERVAL_MS,
+  24 * 60 * 60 * 1000
+);
+const systemBatchSize = nonNegativeNumber(process.env.WORKER_SYSTEM_BATCH_SIZE, 5);
+const jobClaimLimit = positiveNumber(process.env.WORKER_JOB_CLAIM_LIMIT, 100);
 const runOnce = process.env.WORKER_RUN_ONCE === "true";
 const internalToken = process.env.INTERNAL_API_TOKEN;
 let lastUniverseSyncAt = 0;
@@ -15,6 +19,16 @@ const universePages = new Map();
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function positiveNumber(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function nonNegativeNumber(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
 async function fetchJson(path, init) {
@@ -114,32 +128,53 @@ async function main() {
   console.log(`[worker] starting, app=${appBaseUrl}, intervalMs=${intervalMs}`);
   await sleep(initialDelayMs);
   await waitForApp();
-  const initialUniverseSync = await syncSystemUniversesIfNeeded(true);
-  console.log(
-    JSON.stringify({
-      event: "system_universe_sync",
-      finishedAt: new Date().toISOString(),
-      result: initialUniverseSync
-    })
-  );
+  try {
+    const initialUniverseSync = await syncSystemUniversesIfNeeded(true);
+    console.log(
+      JSON.stringify({
+        event: "system_universe_sync",
+        finishedAt: new Date().toISOString(),
+        result: initialUniverseSync
+      })
+    );
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "system_universe_sync_failed",
+        finishedAt: new Date().toISOString(),
+        error: error instanceof Error ? error.message : "Unknown sync error"
+      })
+    );
+  }
 
   while (true) {
     const startedAt = new Date().toISOString();
-    const universeSync = await syncSystemUniversesIfNeeded();
-    const watchlistPlan = await enqueueWatchlist();
-    const universePlan = await enqueueSystemUniverseRotation();
-    const processing = await processJobs();
-    console.log(
-      JSON.stringify({
-        event: "incremental_data_sync",
-        startedAt,
-        finishedAt: new Date().toISOString(),
-        universeSync,
-        watchlistPlan,
-        universePlan,
-        processing
-      })
-    );
+    try {
+      const universeSync = await syncSystemUniversesIfNeeded();
+      const watchlistPlan = await enqueueWatchlist();
+      const universePlan = await enqueueSystemUniverseRotation();
+      const processing = await processJobs();
+      console.log(
+        JSON.stringify({
+          event: "incremental_data_sync",
+          startedAt,
+          finishedAt: new Date().toISOString(),
+          universeSync,
+          watchlistPlan,
+          universePlan,
+          processing
+        })
+      );
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          event: "incremental_data_sync_failed",
+          startedAt,
+          finishedAt: new Date().toISOString(),
+          error: error instanceof Error ? error.message : "Unknown worker error"
+        })
+      );
+    }
 
     if (runOnce) return;
     await sleep(intervalMs);
