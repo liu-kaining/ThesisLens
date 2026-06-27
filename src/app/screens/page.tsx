@@ -104,9 +104,9 @@ export default async function ScreensPage({ searchParams }: ScreensPageProps) {
                               {formatPercent(result.changePercent)}
                             </p>
                           </td>
-                          <td className="px-4 py-4 font-semibold">{result.quality}</td>
-                          <td className="px-4 py-4 font-semibold">{result.valuation}</td>
-                          <td className="px-4 py-4 font-semibold">{result.expectations}</td>
+                          <td className="px-4 py-4 font-semibold">{result.quality ?? "N/A"}</td>
+                          <td className="px-4 py-4 font-semibold">{result.valuation ?? "N/A"}</td>
+                          <td className="px-4 py-4 font-semibold">{result.expectations ?? "N/A"}</td>
                         </tr>
                       ))}
                     </tbody>

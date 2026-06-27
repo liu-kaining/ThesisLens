@@ -7,10 +7,10 @@ export type ScreenResult = {
   name: string;
   price: number;
   changePercent: number;
-  quality: number;
-  valuation: number;
-  expectations: number;
-  eventRisk: number;
+  quality: number | null;
+  valuation: number | null;
+  expectations: number | null;
+  eventRisk: number | null;
   thesis: string;
   direction: Direction;
 };
@@ -32,7 +32,7 @@ function scoreValue(
   scores: Awaited<ReturnType<typeof getCompanyResearch>>["scores"],
   type: ScreenResultKey
 ) {
-  return scores.find((score) => score.scoreType === type)?.score ?? 50;
+  return scores.find((score) => score.scoreType === type)?.score;
 }
 
 type ScreenResultKey = "quality" | "valuation" | "expectations" | "events";
@@ -42,15 +42,16 @@ function resultFromResearch(
   thesis: string,
   direction: Direction
 ): ScreenResult {
+  const eventScore = scoreValue(research.scores, "events");
   return {
     symbol: research.snapshot.profile.symbol,
     name: research.snapshot.profile.name,
     price: research.snapshot.quote.price,
     changePercent: research.snapshot.quote.changesPercentage,
-    quality: scoreValue(research.scores, "quality"),
-    valuation: scoreValue(research.scores, "valuation"),
-    expectations: scoreValue(research.scores, "expectations"),
-    eventRisk: 100 - scoreValue(research.scores, "events"),
+    quality: scoreValue(research.scores, "quality") ?? null,
+    valuation: scoreValue(research.scores, "valuation") ?? null,
+    expectations: scoreValue(research.scores, "expectations") ?? null,
+    eventRisk: eventScore === undefined ? null : 100 - eventScore,
     thesis,
     direction
   };
@@ -61,7 +62,7 @@ export async function getResearchScreens(universeId?: string | null): Promise<Re
   const models = await Promise.all(universe.symbols.map((symbol) => getCompanyResearch(symbol)));
 
   const highQuality = models
-    .filter((model) => scoreValue(model.scores, "quality") >= 75)
+    .filter((model) => (scoreValue(model.scores, "quality") ?? -1) >= 75)
     .map((model) =>
       resultFromResearch(
         model,
@@ -69,10 +70,10 @@ export async function getResearchScreens(universeId?: string | null): Promise<Re
         "positive"
       )
     )
-    .sort((a, b) => b.quality - a.quality);
+    .sort((a, b) => (b.quality ?? -1) - (a.quality ?? -1));
 
   const revisionMomentum = models
-    .filter((model) => scoreValue(model.scores, "expectations") >= 62)
+    .filter((model) => (scoreValue(model.scores, "expectations") ?? -1) >= 62)
     .map((model) =>
       resultFromResearch(
         model,
@@ -80,29 +81,31 @@ export async function getResearchScreens(universeId?: string | null): Promise<Re
         "positive"
       )
     )
-    .sort((a, b) => b.expectations - a.expectations);
+    .sort((a, b) => (b.expectations ?? -1) - (a.expectations ?? -1));
 
   const valuationQuestions = models
+    .filter((model) => scoreValue(model.scores, "valuation") !== undefined)
     .map((model) =>
       resultFromResearch(
         model,
-        scoreValue(model.scores, "valuation") >= 60
+        scoreValue(model.scores, "valuation")! >= 60
           ? "相对已载入证据，估值不算敌意；需要拆解原因。"
           : "估值看起来偏贵；需要找到足够支撑估值的增长证据。",
-        scoreValue(model.scores, "valuation") >= 60 ? "positive" : "mixed"
+        scoreValue(model.scores, "valuation")! >= 60 ? "positive" : "mixed"
       )
     )
-    .sort((a, b) => b.valuation - a.valuation);
+    .sort((a, b) => (b.valuation ?? -1) - (a.valuation ?? -1));
 
   const eventRisk = models
+    .filter((model) => scoreValue(model.scores, "events") !== undefined)
     .map((model) =>
       resultFromResearch(
         model,
         "近期事件或 SEC 文件可能改变短期 thesis；需要复核催化剂。",
-        scoreValue(model.scores, "events") < 58 ? "mixed" : "neutral"
+        scoreValue(model.scores, "events")! < 58 ? "mixed" : "neutral"
       )
     )
-    .sort((a, b) => b.eventRisk - a.eventRisk);
+    .sort((a, b) => (b.eventRisk ?? -1) - (a.eventRisk ?? -1));
 
   return {
     generatedAt: new Date().toISOString(),

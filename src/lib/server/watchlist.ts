@@ -21,16 +21,17 @@ export type EnrichedWatchlistItem = WatchlistItemRecord & {
   name: string;
   price: number;
   changePercent: number;
-  score: number;
+  score?: number;
   topSignal: string;
   changeBadges: WatchlistChangeBadge[];
 };
 
 function scoreValue(research: EnrichedResearch, type: EnrichedResearch["scores"][number]["scoreType"]) {
-  return research.scores.find((score) => score.scoreType === type)?.score ?? 50;
+  return research.scores.find((score) => score.scoreType === type)?.score;
 }
 
-function badgeDirectionFromScore(score: number): Direction {
+function badgeDirectionFromScore(score?: number): Direction {
+  if (score === undefined) return "neutral";
   if (score >= 68) return "positive";
   if (score < 45) return "negative";
   return "mixed";
@@ -50,6 +51,8 @@ function buildChangeBadges(research: EnrichedResearch): WatchlistChangeBadge[] {
   const priceMove = snapshot.quote.changesPercentage;
   const eventCount = snapshot.upcomingEvents.length;
   const behaviorCount = snapshot.insiders.length + snapshot.congress.length;
+  const qualityScore = scoreValue(research, "quality");
+  const behaviorScore = scoreValue(research, "behavior");
   const technicalScore = scoreValue(research, "technical");
 
   return [
@@ -62,8 +65,11 @@ function buildChangeBadges(research: EnrichedResearch): WatchlistChangeBadge[] {
     {
       category: "fundamentals",
       label: "基本面",
-      direction: badgeDirectionFromScore(scoreValue(research, "quality")),
-      detail: `质量分 ${scoreValue(research, "quality")}/100；收入增长 ${formatPercent(revenueGrowth, 1)}`
+      direction: badgeDirectionFromScore(qualityScore),
+      detail:
+        qualityScore === undefined
+          ? "基本面数据不足，暂不计算质量分"
+          : `质量分 ${qualityScore}/100；收入增长 ${formatPercent(revenueGrowth, 1)}`
     },
     {
       category: "estimates",
@@ -91,7 +97,7 @@ function buildChangeBadges(research: EnrichedResearch): WatchlistChangeBadge[] {
     {
       category: "behavior",
       label: "行为",
-      direction: badgeDirectionFromScore(scoreValue(research, "behavior")),
+      direction: badgeDirectionFromScore(behaviorScore),
       detail: `已载入 ${behaviorCount} 条披露`
     },
     {
@@ -108,17 +114,21 @@ export async function getEnrichedWatchlist() {
   const items = await Promise.all(
     watchlist.items.map(async (item) => {
       const model = await getCompanyResearch(item.symbol);
+      const coreScores = model.scores.filter((score) =>
+        ["quality", "valuation", "expectations"].includes(score.scoreType)
+      );
       return {
         ...item,
         name: model.snapshot.profile.name,
         price: model.snapshot.quote.price,
         changePercent: model.snapshot.quote.changesPercentage,
         topSignal: model.signals[0]?.title ?? "暂无计算信号",
-        score: Math.round(
-          model.scores
-            .filter((score) => ["quality", "valuation", "expectations"].includes(score.scoreType))
-            .reduce((sum, score) => sum + score.score, 0) / 3
-        ),
+        score: coreScores.length
+          ? Math.round(
+              coreScores.reduce((sum, score) => sum + score.score, 0) /
+                coreScores.length
+            )
+          : undefined,
         changeBadges: buildChangeBadges(model)
       };
     })

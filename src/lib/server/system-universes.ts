@@ -7,11 +7,27 @@ import {
 } from "@/lib/server/db";
 import { getFmpUniverseMembers } from "@/lib/server/fmp";
 
+const MINIMUM_LIVE_UNIVERSE_MEMBERS: Record<SystemUniverseId, number> = {
+  sp500: 350,
+  qqq_holdings: 70,
+  spy_holdings: 350,
+  dowjones: 20,
+  nasdaq: 70
+};
+
 export async function syncSystemUniverse(universeId: SystemUniverseId) {
   const definition = getSystemUniverseDefinition(universeId);
   if (!definition) throw new Error(`Unknown system universe: ${universeId}`);
 
   const members = await getFmpUniverseMembers(universeId);
+  const universes = await getSystemUniverses();
+  const previousCount =
+    universes.find((universe) => universe.id === universeId)?.activeCount ?? 0;
+  if (!isPlausibleSystemUniverseUpdate(universeId, members.length, previousCount)) {
+    throw new Error(
+      `Rejected implausible ${universeId} membership update: received ${members.length}, previous ${previousCount}`
+    );
+  }
   const inputs: SystemUniverseMemberInput[] = members.map((member) => ({
     symbol: member.symbol,
     name: member.name,
@@ -24,6 +40,17 @@ export async function syncSystemUniverse(universeId: SystemUniverseId) {
   }));
 
   return syncSystemUniverseMembers(universeId, inputs);
+}
+
+export function isPlausibleSystemUniverseUpdate(
+  universeId: SystemUniverseId,
+  incomingCount: number,
+  previousCount: number
+) {
+  if (process.env.FMP_USE_MOCKS === "true") return incomingCount > 0;
+  if (incomingCount < MINIMUM_LIVE_UNIVERSE_MEMBERS[universeId]) return false;
+  if (previousCount > 0 && incomingCount < previousCount * 0.6) return false;
+  return true;
 }
 
 export async function syncAllSystemUniverses() {
@@ -49,6 +76,7 @@ export async function syncAllSystemUniverses() {
   }
 
   return {
+    ok: results.every((result) => result.ok),
     syncedAt: new Date().toISOString(),
     results
   };

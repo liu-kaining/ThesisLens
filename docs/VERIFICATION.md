@@ -1,6 +1,45 @@
 # Verification Log
 
-Last verified: 2026-06-24
+Last verified: 2026-06-27
+
+## Production Recheck (2026-06-27)
+
+An independent recheck found and corrected data-integrity issues that were not
+covered by the previous smoke suite:
+
+- SPY and QQQ membership refreshes now reject implausible payloads and fall back
+  to index constituents without deactivating the last valid universe snapshot.
+- The live database was restored to 503 SPY members and 101 QQQ members.
+- SMA50, SMA200, and RSI are calculated from 420 calendar days of actual price
+  history. Approximate indicator placeholders were removed.
+- Fixed 50% historical and peer P/E percentile placeholders were removed from
+  live normalization and all 521 persisted snapshots.
+- Empty analytical payloads are no longer labeled as live data or converted
+  into default quality, valuation, expectations, technical, or behavior scores.
+- A successful empty FMP response is recorded as checked-with-no-data and does
+  not consume repeated queue retries.
+- Stored derived scores and signals self-heal on read when the rules change,
+  without making another FMP request.
+- Dashboard market commentary was replaced with objective watchlist statistics.
+- Redis retries after transient failures, and configured Redis connectivity is
+  now part of production health.
+- PostgreSQL snapshot and module-state write failures are no longer silently
+  reported as successful in-memory writes.
+- The local Docker build was restored to the standard `node:22-alpine` base;
+  the application image was reduced from roughly 3.53 GB to 339 MB.
+
+Final checks:
+
+- `npm run verify`: 14 test files and 31 tests passed.
+- `npm audit --omit=dev`: zero production dependency vulnerabilities.
+- Docker Compose app, Postgres, and Redis services reported healthy.
+- Live FMP mode, Postgres persistence, Redis cache, and all five system
+  universes reported healthy.
+- Queue state returned zero queued, running, and failed jobs.
+- Runtime smoke covered authentication, dashboard, company APIs, universes,
+  screens, market, calendar, portfolio, theses, and alerts.
+- Authorization checks confirmed that session cookies cannot call internal APIs,
+  invalid worker tokens are rejected, and worker tokens cannot write user data.
 
 ## Production Readiness Review (2026-06-24)
 

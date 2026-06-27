@@ -350,7 +350,7 @@ function hasValuationValues(valuation: Valuation) {
 
 export async function searchFmpSymbols(query: string): Promise<SearchResult[]> {
   const normalized = query.trim().toUpperCase();
-  if (!normalized) return mockSearchResults;
+  if (!normalized) return [];
 
   if (shouldUseMocks()) {
     return mockSearchResults.filter(
@@ -438,20 +438,30 @@ export async function getFmpUniverseMembers(universeId: SystemUniverseId): Promi
       ? await fmpRequest<unknown[]>("etf/holdings", { symbol: etfSymbol }, 86400, fmpRecordArraySchema)
       : null;
   let effectiveSource = source;
+  let members = normalizeUniverseMembers(raw, effectiveSource);
 
-  if ((!raw || asArray(raw).length === 0) && etfSymbol) {
+  if (etfSymbol && !isCredibleEtfHoldings(members, etfSymbol)) {
     const fallbackEndpoint = ETF_FALLBACK_ENDPOINTS[universeId];
     if (fallbackEndpoint) {
       raw = await fmpRequest<unknown[]>(fallbackEndpoint, {}, 86400, fmpRecordArraySchema);
       effectiveSource = `${fallbackEndpoint}:fallback`;
+      members = normalizeUniverseMembers(raw, effectiveSource);
     }
   }
 
+  return members;
+}
+
+function normalizeUniverseMembers(raw: unknown[] | null, source: string) {
   const members = asArray(raw)
-    .map((item, index) => normalizeUniverseMember(item, index + 1, effectiveSource))
+    .map((item, index) => normalizeUniverseMember(item, index + 1, source))
     .filter((member): member is FmpUniverseMember => Boolean(member));
 
   return Array.from(new Map(members.map((member) => [member.symbol, member])).values());
+}
+
+function isCredibleEtfHoldings(members: FmpUniverseMember[], etfSymbol: string) {
+  return members.length >= 20 && members.some((member) => member.symbol !== etfSymbol);
 }
 
 export async function getFmpResearchSnapshot(
@@ -495,6 +505,9 @@ export async function getFmpResearchSnapshot(
   const from = new Date(today);
   from.setDate(today.getDate() - 120);
   const fromDate = from.toISOString().slice(0, 10);
+  const technicalFrom = new Date(today);
+  technicalFrom.setDate(today.getDate() - 420);
+  const technicalFromDate = technicalFrom.toISOString().slice(0, 10);
   const toDate = today.toISOString().slice(0, 10);
   const future = new Date(today);
   future.setDate(today.getDate() + 180);
@@ -548,11 +561,14 @@ export async function getFmpResearchSnapshot(
     wants("congress") ? request<unknown[]>("senate-trades", { symbol: normalized }, 3600, fmpRecordArraySchema) : null,
     wants("congress") ? request<unknown[]>("house-trades", { symbol: normalized }, 3600, fmpRecordArraySchema) : null,
     wants("calendar") ? request<unknown[]>("earnings", { symbol: normalized }, 21600, fmpRecordArraySchema) : null,
-    wants("technical") ? request<unknown[]>("historical-price-eod/light", { symbol: normalized, from: fromDate, to: toDate }, 3600, fmpRecordArraySchema) : null,
+    wants("technical") ? request<unknown[]>("historical-price-eod/light", { symbol: normalized, from: technicalFromDate, to: toDate }, 3600, fmpRecordArraySchema) : null,
     wants("peers") ? request<unknown[]>("stock-peers", { symbol: normalized }, 86400, fmpRecordArraySchema) : null
   ]);
   const endpointSucceeded = (...paths: string[]) =>
     paths.some((path) => requestStatuses.get(path)?.ok === true);
+  const endpointsChecked = (...paths: string[]) =>
+    paths.length > 0 &&
+    paths.every((path) => requestStatuses.get(path)?.ok === true);
 
   const fallbackProfile = baseSnapshot?.profile ?? {
     symbol: normalized,
@@ -622,6 +638,16 @@ export async function getFmpResearchSnapshot(
   const hasFinancialScores = hasFinancialScoreValues(normalizedScores);
   const hasPriceTarget = hasPriceTargetValues(priceTarget);
   const hasValuation = hasValuationValues(valuation);
+  const hasFreshFinancialScores = hasFinancialScoreValues(freshScores);
+  const hasFreshPriceTarget = hasPriceTargetValues(freshPriceTarget);
+  const hasFreshValuation = hasValuationValues(freshValuation);
+  const hasFreshFundamentals =
+    freshFinancials.length > 0 || freshMetrics.length > 0;
+  const hasFreshExpectations =
+    freshAnalystEstimates.length > 0 || Boolean(freshRating.rating);
+  const validProfile = Boolean(profile && str(profile, ["symbol", "companyName", "name"]));
+  const validQuote =
+    Boolean(quote) && optionalNum(quote, ["price"]) !== undefined;
   const legacyKeys: Partial<Record<DataModuleKey, string>> = {
     profile: "company_quote",
     quote: "company_quote",
@@ -637,7 +663,8 @@ export async function getFmpResearchSnapshot(
   const moduleEntry = (
     key: DataModuleKey,
     success: boolean,
-    detail: string
+    detail: string,
+    attemptOk = success
   ): NonNullable<ResearchSnapshot["dataStatus"]["modules"]>[number] => {
     const definition = DATA_MODULES.find((module) => module.key === key);
     const previous = priorModule(key);
@@ -663,7 +690,8 @@ export async function getFmpResearchSnapshot(
         status: "live",
         detail,
         refreshedAt: now,
-        expiresAt: moduleExpiresAt(key, now)
+        expiresAt: moduleExpiresAt(key, now),
+        attemptStatus: "success"
       };
     }
     if (previous?.refreshedAt || baseSnapshot) {
@@ -673,49 +701,71 @@ export async function getFmpResearchSnapshot(
         status: "stale",
         detail: `本次刷新未取得新数据，继续使用本地快照。${detail}`,
         refreshedAt: previous?.refreshedAt ?? baseSnapshot?.dataStatus.refreshedAt,
-        expiresAt: previous?.expiresAt
+        expiresAt: attemptOk ? moduleExpiresAt(key, now) : previous?.expiresAt,
+        attemptStatus: attemptOk ? "success" : "failed"
       };
     }
     return {
       key,
       label: definition?.label ?? key,
       status: "unavailable",
-      detail
+      detail,
+      refreshedAt: attemptOk ? now : undefined,
+      expiresAt: attemptOk ? moduleExpiresAt(key, now) : undefined,
+      attemptStatus: attemptOk ? "success" : "failed"
     };
   };
   const moduleStatus = [
-    moduleEntry("profile", Boolean(profile) && endpointSucceeded("profile"), "公司资料来自 FMP profile。"),
-    moduleEntry("quote", Boolean(quote) && endpointSucceeded("quote"), "价格、涨跌和成交量来自 FMP quote。"),
+    moduleEntry("profile", validProfile && endpointSucceeded("profile"), "公司资料来自 FMP profile。"),
+    moduleEntry("quote", validQuote && endpointSucceeded("quote"), "价格、涨跌和成交量来自 FMP quote。"),
     moduleEntry(
       "fundamentals",
-      endpointSucceeded(
+      hasFreshFundamentals &&
+        endpointSucceeded(
+          "income-statement",
+          "balance-sheet-statement",
+          "cash-flow-statement",
+          "key-metrics",
+          "ratios"
+        ),
+      `财务报表 ${financials.length} 期，关键指标/比率 ${metrics.length} 期。`,
+      endpointsChecked(
         "income-statement",
         "balance-sheet-statement",
         "cash-flow-statement",
         "key-metrics",
         "ratios"
-      ),
-      `财务报表 ${financials.length} 期，关键指标/比率 ${metrics.length} 期。`
+      )
     ),
     moduleEntry(
       "financial_scores",
-      endpointSucceeded("financial-scores"),
-      hasFinancialScores ? "Piotroski / Altman 等财务健康指标可用。" : "financial-scores 未返回可用值。"
+      hasFreshFinancialScores && endpointSucceeded("financial-scores"),
+      hasFinancialScores ? "Piotroski / Altman 等财务健康指标可用。" : "financial-scores 未返回可用值。",
+      endpointsChecked("financial-scores")
     ),
     moduleEntry(
       "valuation",
-      endpointSucceeded(
+      (hasFreshValuation || hasFreshPriceTarget) &&
+        endpointSucceeded(
+          "discounted-cash-flow",
+          "levered-discounted-cash-flow",
+          "enterprise-values",
+          "price-target-consensus"
+        ),
+      `DCF ${hasValuation ? "可用" : "缺失"}，一致目标价 ${hasPriceTarget ? "可用" : "缺失"}。`,
+      endpointsChecked(
         "discounted-cash-flow",
         "levered-discounted-cash-flow",
         "enterprise-values",
         "price-target-consensus"
-      ),
-      `DCF ${hasValuation ? "可用" : "缺失"}，一致目标价 ${hasPriceTarget ? "可用" : "缺失"}。`
+      )
     ),
     moduleEntry(
       "expectations",
-      endpointSucceeded("analyst-estimates", "ratings-snapshot"),
-      `分析师预期 ${analystEstimates.length} 条，评级 ${rating.rating ? "可用" : "缺失"}。`
+      hasFreshExpectations &&
+        endpointSucceeded("analyst-estimates", "ratings-snapshot"),
+      `分析师预期 ${analystEstimates.length} 条，评级 ${rating.rating ? "可用" : "缺失"}。`,
+      endpointsChecked("analyst-estimates", "ratings-snapshot")
     ),
     moduleEntry("news", endpointSucceeded("news/stock", "news/press-releases"), `新闻/公告 ${news.length} 条。`),
     moduleEntry("sec", endpointSucceeded("sec-filings-search/symbol"), `SEC 文件 ${filings.length} 条。`),
@@ -723,8 +773,9 @@ export async function getFmpResearchSnapshot(
     moduleEntry("congress", endpointSucceeded("senate-trades", "house-trades"), `国会交易 ${congress.length} 条。`),
     moduleEntry(
       "technical",
-      endpointSucceeded("historical-price-eod/light"),
-      `历史价格序列生成 ${technicals.length} 个技术面观察点。`
+      freshTechnicals.length > 0 && endpointSucceeded("historical-price-eod/light"),
+      `历史价格序列生成 ${technicals.length} 个技术面观察点。`,
+      endpointsChecked("historical-price-eod/light")
     ),
     moduleEntry(
       "peers",
@@ -905,12 +956,13 @@ function normalizeAnalystEstimates(raw: unknown[] | null): AnalystEstimate[] {
 
 function normalizePriceTarget(raw: unknown[] | null): PriceTarget {
   const item = asArray(raw)[0];
+  const updatedAt = str(item, ["lastUpdated", "publishedDate"], "");
   return {
     targetHigh: optionalNum(item, ["targetHigh", "targetHighPrice"]),
     targetLow: optionalNum(item, ["targetLow", "targetLowPrice"]),
     targetConsensus: optionalNum(item, ["targetConsensus", "targetConsensusPrice", "targetMean"]),
     targetMedian: optionalNum(item, ["targetMedian", "targetMedianPrice"]),
-    updatedAt: str(item, ["lastUpdated", "publishedDate"], new Date().toISOString())
+    updatedAt: updatedAt || undefined
   };
 }
 
@@ -940,9 +992,7 @@ function normalizeValuation(
     dcf: optionalNum(dcf, ["dcf", "DCF"]),
     leveredDcf: optionalNum(levered, ["dcf", "leveredDCF"]),
     enterpriseValue: optionalNum(enterprise, ["enterpriseValue"]),
-    marketCap: optionalNum(enterprise, ["marketCapitalization", "marketCap"]),
-    historicalPePercentile: 50,
-    peerPePercentile: 50
+    marketCap: optionalNum(enterprise, ["marketCapitalization", "marketCap"])
   };
 }
 
@@ -951,10 +1001,9 @@ function normalizeNews(newsRaw: unknown[] | null, pressRaw: unknown[] | null): N
     id: str(item, ["id"], `news-${index}`),
     title: str(item, ["title"], "Untitled update"),
     publisher: str(item, ["publisher", "site"], "FMP"),
-    publishedAt: str(item, ["publishedDate", "date"], new Date().toISOString()),
+    publishedAt: str(item, ["publishedDate", "date"], ""),
     url: str(item, ["url"], undefined as unknown as string),
-    summary: str(item, ["text", "summary"], "No summary available."),
-    sentiment: "neutral"
+    summary: str(item, ["text", "summary"], "No summary available.")
   }));
 }
 
@@ -1066,24 +1115,44 @@ function normalizeUpcomingEvents(raw: unknown[] | null, fromDate: string, toDate
 function normalizeTechnicals(raw: unknown[] | null): TechnicalPoint[] {
   const rows = asArray(raw)
     .filter((item) => str(item, ["date"], ""))
-    .sort((a, b) => dateTime(a, ["date"]) - dateTime(b, ["date"]))
-    .slice(-60);
+    .sort((a, b) => dateTime(a, ["date"]) - dateTime(b, ["date"]));
   if (!rows.length) return [];
 
-  return rows.slice(-45).map((item, index, arr) => {
-    const close = num(item, ["close", "price"]);
-    const window50 = arr.slice(Math.max(0, index - 49), index + 1).map((row) => num(row, ["close", "price"]));
-    const sma50 = window50.reduce((sum, value) => sum + value, 0) / Math.max(window50.length, 1);
+  const closes = rows.map((item) => num(item, ["close", "price"], Number.NaN));
+  const movingAverage = (index: number, period: number) => {
+    if (index < period - 1) return undefined;
+    const window = closes.slice(index - period + 1, index + 1);
+    if (window.some((value) => !Number.isFinite(value))) return undefined;
+    return window.reduce((sum, value) => sum + value, 0) / period;
+  };
+  const rsi = (index: number, period = 14) => {
+    if (index < period) return undefined;
+    let gains = 0;
+    let losses = 0;
+    for (let cursor = index - period + 1; cursor <= index; cursor += 1) {
+      const current = closes[cursor];
+      const previous = closes[cursor - 1];
+      if (!Number.isFinite(current) || !Number.isFinite(previous)) return undefined;
+      const change = current - previous;
+      if (change > 0) gains += change;
+      if (change < 0) losses += Math.abs(change);
+    }
+    if (losses === 0) return gains === 0 ? 50 : 100;
+    const relativeStrength = gains / losses;
+    return 100 - 100 / (1 + relativeStrength);
+  };
 
+  return rows.map((item, index) => {
+    const close = closes[index];
     return {
       date: str(item, ["date"], ""),
       close,
       volume: optionalNum(item, ["volume"]),
-      sma50,
-      sma200: sma50 * 0.96,
-      rsi: 50 + Math.max(Math.min(((close - sma50) / Math.max(sma50, 1)) * 220, 25), -25)
+      sma50: movingAverage(index, 50),
+      sma200: movingAverage(index, 200),
+      rsi: rsi(index)
     };
-  });
+  }).filter((item) => Number.isFinite(item.close)).slice(-90);
 }
 
 function normalizePeers(raw: unknown[] | null): PeerSnapshot[] {

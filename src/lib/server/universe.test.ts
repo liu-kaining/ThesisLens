@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getSystemUniversePage,
+  isPlausibleSystemUniverseUpdate,
   syncSystemUniverse
 } from "@/lib/server/system-universes";
 import { getResearchUniverse } from "@/lib/server/universe";
@@ -13,6 +14,14 @@ describe("research universe", () => {
 
   it("falls back to the personal watchlist for an unknown selection", () => {
     expect(normalizeResearchUniverseId("unknown")).toBe("watchlist");
+  });
+
+  it("rejects destructive live universe shrinkage", () => {
+    vi.stubEnv("FMP_USE_MOCKS", "false");
+
+    expect(isPlausibleSystemUniverseUpdate("qqq_holdings", 1, 101)).toBe(false);
+    expect(isPlausibleSystemUniverseUpdate("spy_holdings", 1, 503)).toBe(false);
+    expect(isPlausibleSystemUniverseUpdate("sp500", 500, 503)).toBe(true);
   });
 
   it("loads a bounded system universe while preserving its total size", async () => {

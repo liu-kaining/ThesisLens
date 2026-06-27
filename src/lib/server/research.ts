@@ -1,9 +1,11 @@
 import { buildResearchMemo } from "@/lib/research-memo";
+import { stockSymbolSchema } from "@/lib/api-validation";
 import {
   allDataModuleKeys,
   type DataModuleKey
 } from "@/lib/data-modules";
 import { deleteCache, getJsonCache, setJsonCache } from "@/lib/server/cache";
+import { formatPercent } from "@/lib/format";
 import {
   getCompanyResearchSnapshot,
   saveCompanyResearchSnapshot,
@@ -20,6 +22,14 @@ const snapshotCache = new Map<string, { expiresAt: number; value: EnrichedResear
 const FIVE_MINUTES = 5 * 60 * 1000;
 const RESEARCH_CACHE_SECONDS = 5 * 60;
 
+function normalizeResearchSymbol(symbol: string) {
+  const parsed = stockSymbolSchema.safeParse(symbol);
+  if (!parsed.success) {
+    throw new Error("Invalid U.S. stock symbol");
+  }
+  return parsed.data;
+}
+
 export async function getSearchResults(query: string) {
   return searchFmpSymbols(query);
 }
@@ -31,6 +41,18 @@ async function buildEnrichedResearch(snapshot: ResearchSnapshot): Promise<Enrich
   const memo = await buildResearchMemo(snapshot, scores, signals, evidence);
 
   return { snapshot, evidence, scores, signals, memo };
+}
+
+async function refreshStoredDerivedResearch(
+  record: PersistedResearchSnapshotRecord
+) {
+  const recomputed = await buildEnrichedResearch(record.research.snapshot);
+  if (recomputed.memo.factsHash === record.research.memo.factsHash) {
+    return record.research;
+  }
+
+  await saveCompanyResearchSnapshot(recomputed);
+  return recomputed;
 }
 
 function hasPersistableFmpData(snapshot: ResearchSnapshot) {
@@ -72,7 +94,7 @@ async function persistResearchIfUseful(research: EnrichedResearch) {
 }
 
 export async function getCompanyResearch(symbol: string): Promise<EnrichedResearch> {
-  const normalized = symbol.toUpperCase();
+  const normalized = normalizeResearchSymbol(symbol);
   const cacheKey = `research:${normalized}`;
   const cached = snapshotCache.get(normalized);
   if (cached && cached.expiresAt > Date.now()) {
@@ -96,15 +118,16 @@ export async function getCompanyResearch(symbol: string): Promise<EnrichedResear
 
   const stored = await getCompanyResearchSnapshot(normalized);
   if (stored) {
+    const storedResearch = await refreshStoredDerivedResearch(stored);
     await enqueueDueDataSync([normalized], 100, "page_access").catch(() => {
       // Serving a durable snapshot must not depend on queue availability.
     });
     snapshotCache.set(normalized, {
       expiresAt: Date.now() + FIVE_MINUTES,
-      value: stored.research
+      value: storedResearch
     });
-    await setJsonCache(cacheKey, stored.research, RESEARCH_CACHE_SECONDS);
-    return stored.research;
+    await setJsonCache(cacheKey, storedResearch, RESEARCH_CACHE_SECONDS);
+    return storedResearch;
   }
 
   let value: EnrichedResearch;
@@ -142,7 +165,7 @@ export async function refreshCompanyResearch(
   symbol: string,
   modules: DataModuleKey[] = allDataModuleKeys()
 ): Promise<EnrichedResearch> {
-  const normalized = symbol.toUpperCase();
+  const normalized = normalizeResearchSymbol(symbol);
   snapshotCache.delete(normalized);
   await deleteCache(`research:${normalized}`);
   const stored = await getCompanyResearchSnapshot(normalized);
@@ -197,27 +220,51 @@ function researchIdeaFromModel({ snapshot, scores, signals }: EnrichedResearch) 
 export async function getDashboardModel(): Promise<DashboardModel> {
   const universe = await getResearchUniverse({ limit: 8 });
   const research = await Promise.all(universe.symbols.map((symbol) => getCompanyResearch(symbol)));
+  const averageDailyChange = research.length
+    ? research.reduce(
+        (sum, item) => sum + (item.snapshot.quote.changesPercentage ?? 0),
+        0
+      ) / research.length
+    : 0;
+  const moduleStates = research.flatMap(
+    (item) => item.snapshot.dataStatus.modules ?? []
+  );
+  const liveModuleCount = moduleStates.filter(
+    (module) => module.status === "live"
+  ).length;
+  const upcomingEarningsCount = research.reduce(
+    (count, item) => count + item.snapshot.upcomingEvents.length,
+    0
+  );
 
   return {
     generatedAt: new Date().toISOString(),
     marketPulse: [
       {
-        label: "市场状态",
-        value: "结构性偏风险",
-        direction: "mixed",
-        detail: "大市值高质量公司仍受资金关注，但估值分化明显。"
+        label: "观察列表平均涨跌",
+        value: formatPercent(averageDailyChange, 1),
+        direction:
+          averageDailyChange > 0.2
+            ? "positive"
+            : averageDailyChange < -0.2
+              ? "negative"
+              : "neutral",
+        detail: `基于当前观察列表 ${research.length} 个标的的日内涨跌幅等权计算。`
       },
       {
-        label: "研究重点",
-        value: "预期修正质量",
-        direction: "positive",
-        detail: "优先看 FMP 分析师预期和目标价变化，而不是只看新闻标题。"
+        label: "数据模块覆盖",
+        value: `${liveModuleCount}/${moduleStates.length}`,
+        direction:
+          moduleStates.length > 0 && liveModuleCount === moduleStates.length
+            ? "positive"
+            : "mixed",
+        detail: "显示当前观察列表中实时有效模块数与已登记模块总数。"
       },
       {
-        label: "事件压力",
-        value: "中等",
+        label: "未来财报事件",
+        value: `${upcomingEarningsCount} 个`,
         direction: "neutral",
-        detail: "近期财报窗口和 SEC 文件是主要事件风险来源。"
+        detail: "统计当前观察列表未来 180 天内已载入的财报事件。"
       }
     ],
     universe,

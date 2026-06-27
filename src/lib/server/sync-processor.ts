@@ -32,7 +32,11 @@ export async function processDataSyncJobs(limit = 30) {
       );
       const succeeded = jobs.filter((job) => {
         const state = moduleStates.get(job.moduleKey);
-        return state?.status === "live" || state?.status === "mock";
+        return (
+          state?.status === "live" ||
+          state?.status === "mock" ||
+          state?.attemptStatus === "success"
+        );
       });
       const failed = jobs.filter((job) => !succeeded.includes(job));
 

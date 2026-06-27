@@ -94,8 +94,14 @@ export function PortfolioClient({ initialPortfolio }: { initialPortfolio: Portfo
         <div className="grid gap-3 sm:grid-cols-4">
           <Metric label="市值" value={formatCurrency(portfolio.totalValue)} />
           <Metric label="盈亏" value={formatCurrency(portfolio.unrealizedGain)} />
-          <Metric label="质量" value={`${portfolio.weightedQuality}`} />
-          <Metric label="事件风险" value={`${portfolio.weightedEventRisk}`} />
+          <Metric
+            label="质量"
+            value={portfolio.weightedQuality === null ? "N/A" : `${portfolio.weightedQuality}`}
+          />
+          <Metric
+            label="事件风险"
+            value={portfolio.weightedEventRisk === null ? "N/A" : `${portfolio.weightedEventRisk}`}
+          />
         </div>
         <div className="mt-4 overflow-hidden rounded-md border border-line">
           <table className="w-full border-collapse text-left text-sm">

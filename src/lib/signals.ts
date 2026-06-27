@@ -251,9 +251,12 @@ export function computeScores(snapshot: ResearchSnapshot, evidence: Evidence[]):
 
   const revenueGrowth = safePercentChange(currentFinancial?.revenue, previousFinancial?.revenue);
   const fcfMargin =
-    currentFinancial?.freeCashFlow && currentFinancial?.revenue
+    currentFinancial && currentFinancial.revenue !== 0
       ? (currentFinancial.freeCashFlow / currentFinancial.revenue) * 100
       : 0;
+  const hasFcfMargin = Boolean(
+    currentFinancial && currentFinancial.revenue !== 0
+  );
   const dcfGap = snapshot.valuation.dcf
     ? ((snapshot.valuation.dcf - snapshot.quote.price) / snapshot.quote.price) * 100
     : 0;
@@ -281,28 +284,46 @@ export function computeScores(snapshot: ResearchSnapshot, evidence: Evidence[]):
       : 0;
 
   const quality = clamp(
-    45 +
-      (snapshot.scores.piotroskiScore ?? 5) * 4 +
-      Math.min(snapshot.scores.altmanZScore ?? 3, 10) * 2 +
-      Math.min(currentMetric?.operatingMargin ?? 0, 50) * 0.35 +
-      Math.min(fcfMargin, 35) * 0.45
+    50 +
+      (snapshot.scores.piotroskiScore !== undefined
+        ? (snapshot.scores.piotroskiScore - 5) * 6
+        : 0) +
+      (snapshot.scores.altmanZScore !== undefined
+        ? (Math.min(snapshot.scores.altmanZScore, 10) - 3) * 3
+        : 0) +
+      (currentMetric?.operatingMargin !== undefined
+        ? (Math.min(currentMetric.operatingMargin, 50) - 15) * 0.5
+        : 0) +
+      (hasFcfMargin ? (Math.min(fcfMargin, 35) - 8) * 0.6 : 0)
   );
   const growth = clamp(50 + revenueGrowth * 1.6 + (estimate?.revenueRevisionPercent ?? 0) * 2);
   const profitability = clamp(
-    40 +
-      Math.min(currentMetric?.grossMargin ?? 0, 80) * 0.25 +
-      Math.min(currentMetric?.operatingMargin ?? 0, 60) * 0.45 +
-      Math.min(currentMetric?.netMargin ?? 0, 55) * 0.35
+    50 +
+      (currentMetric?.grossMargin !== undefined
+        ? (Math.min(currentMetric.grossMargin, 80) - 40) * 0.25
+        : 0) +
+      (currentMetric?.operatingMargin !== undefined
+        ? (Math.min(currentMetric.operatingMargin, 60) - 15) * 0.5
+        : 0) +
+      (currentMetric?.netMargin !== undefined
+        ? (Math.min(currentMetric.netMargin, 55) - 10) * 0.4
+        : 0)
   );
   const balanceSheet = clamp(
-    70 +
-      ((currentMetric?.currentRatio ?? 1) - 1) * 12 -
-      Math.max((currentMetric?.debtToEquity ?? 1) - 0.7, 0) * 16 +
-      Math.min(snapshot.scores.altmanZScore ?? 3, 8) * 2
+    50 +
+      (currentMetric?.currentRatio !== undefined
+        ? (currentMetric.currentRatio - 1) * 12
+        : 0) -
+      (currentMetric?.debtToEquity !== undefined
+        ? (currentMetric.debtToEquity - 0.7) * 12
+        : 0) +
+      (snapshot.scores.altmanZScore !== undefined
+        ? (Math.min(snapshot.scores.altmanZScore, 8) - 3) * 3
+        : 0)
   );
-  const cashFlow = clamp(45 + fcfMargin * 1.5 + (currentFinancial?.freeCashFlow ?? 0) / 10000000000);
+  const cashFlow = clamp(50 + (fcfMargin - 8) * 1.5);
   const valuation = clamp(
-    55 +
+    50 +
       dcfGap * 0.35 +
       priceTargetGap * 0.25 -
       Math.max((snapshot.valuation.historicalPePercentile ?? 50) - 50, 0) * 0.45
@@ -313,7 +334,7 @@ export function computeScores(snapshot: ResearchSnapshot, evidence: Evidence[]):
       (estimate?.revenueRevisionPercent ?? 0) * 2 +
       priceTargetGap * 0.2
   );
-  const technical = clamp(55 + smaGap * 1.4 - Math.max(rsi - 70, 0) * 1.8 + Math.max(45 - rsi, 0));
+  const technical = clamp(50 + smaGap * 1.4 - Math.max(rsi - 70, 0) * 1.8 + Math.max(45 - rsi, 0));
   const events = clamp(64 - snapshot.upcomingEvents.filter((event) => event.severity === "high").length * 10);
   const behavior = clamp(52 + insiderSignal + congressSignal);
 
@@ -322,8 +343,88 @@ export function computeScores(snapshot: ResearchSnapshot, evidence: Evidence[]):
       .filter((item) => sources.some((source) => item.source.includes(source)))
       .slice(0, 4)
       .map((item) => item.id);
+  const usableModule = (key: string) =>
+    snapshot.dataStatus.modules?.some(
+      (module) =>
+        module.key === key &&
+        (module.status === "live" || module.status === "stale")
+    ) ?? false;
+  const availableScoreTypes = new Set<CompanyScore["scoreType"]>();
+  const qualityInputCount = [
+    snapshot.scores.piotroskiScore,
+    snapshot.scores.altmanZScore,
+    currentMetric?.operatingMargin,
+    hasFcfMargin ? fcfMargin : undefined
+  ].filter((value) => value !== undefined).length;
+  if (currentFinancial && qualityInputCount >= 2) {
+    availableScoreTypes.add("quality");
+  }
+  if (
+    (currentFinancial && previousFinancial) ||
+    estimate?.revenueRevisionPercent !== undefined
+  ) {
+    availableScoreTypes.add("growth");
+  }
+  if (
+    currentMetric &&
+    [
+      currentMetric.grossMargin,
+      currentMetric.operatingMargin,
+      currentMetric.netMargin
+    ].some((value) => value !== undefined)
+  ) {
+    availableScoreTypes.add("profitability");
+  }
+  if (
+    currentMetric?.currentRatio !== undefined ||
+    currentMetric?.debtToEquity !== undefined ||
+    snapshot.scores.altmanZScore !== undefined
+  ) {
+    availableScoreTypes.add("balance_sheet");
+  }
+  if (
+    currentFinancial?.freeCashFlow !== undefined &&
+    currentFinancial.revenue !== 0
+  ) {
+    availableScoreTypes.add("cash_flow");
+  }
+  if (
+    snapshot.quote.price > 0 &&
+    (snapshot.valuation.dcf !== undefined ||
+      snapshot.valuation.leveredDcf !== undefined ||
+      snapshot.priceTarget.targetConsensus !== undefined)
+  ) {
+    availableScoreTypes.add("valuation");
+  }
+  if (
+    estimate ||
+    snapshot.rating.rating ||
+    snapshot.priceTarget.targetConsensus !== undefined
+  ) {
+    availableScoreTypes.add("expectations");
+  }
+  if (
+    latestTechnical?.close !== undefined &&
+    latestTechnical.sma50 !== undefined &&
+    latestTechnical.rsi !== undefined
+  ) {
+    availableScoreTypes.add("technical");
+  }
+  if (
+    snapshot.upcomingEvents.length > 0 ||
+    snapshot.filings.length > 0 ||
+    snapshot.news.length > 0 ||
+    usableModule("calendar") ||
+    usableModule("sec") ||
+    usableModule("news")
+  ) {
+    availableScoreTypes.add("events");
+  }
+  if (snapshot.insiders.length > 0 || snapshot.congress.length > 0) {
+    availableScoreTypes.add("behavior");
+  }
 
-  return [
+  const computedScores: CompanyScore[] = [
     {
       id: `${symbol}-quality-score`,
       symbol,
@@ -545,6 +646,10 @@ export function computeScores(snapshot: ResearchSnapshot, evidence: Evidence[]):
       computedAt: now
     }
   ];
+
+  return computedScores.filter((score) =>
+    availableScoreTypes.has(score.scoreType)
+  );
 }
 
 export function computeSignals(
@@ -572,7 +677,7 @@ export function computeSignals(
   const behaviorScore = byType("behavior");
   const technicalScore = byType("technical");
 
-  return [
+  const computedSignals: Signal[] = [
     {
       id: `${symbol}-signal-quality`,
       symbol,
@@ -656,4 +761,13 @@ export function computeSignals(
       computedAt: now
     }
   ];
+
+  return computedSignals.filter((signal) => {
+    if (signal.category === "quality") return Boolean(qualityScore);
+    if (signal.category === "valuation") return Boolean(valuationScore);
+    if (signal.category === "expectations") return Boolean(expectationsScore);
+    if (signal.category === "behavior") return Boolean(behaviorScore);
+    if (signal.category === "technical") return Boolean(technicalScore);
+    return true;
+  });
 }

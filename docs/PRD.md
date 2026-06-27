@@ -2,7 +2,12 @@
 
 ## 1. Product Summary
 
-ThesisLens is an AI-assisted U.S. equity research website built on Financial Modeling Prep (FMP) data. It turns structured financial, market, analyst, event, filing, insider, and congressional datasets into an explainable investment research workspace.
+ThesisLens is a rules-based U.S. equity research website built on Financial Modeling Prep (FMP) data. It turns structured financial, market, analyst, event, filing, insider, and congressional datasets into an explainable investment research workspace.
+
+Current scope note (2026-06-27): the deployed product has no external LLM
+integration. Research memos and signals are deterministic and evidence-linked.
+AI requirements retained in later sections are deferred ideas and are not part of
+the current release.
 
 The product is not a table browser and not a clone of Quiver Quantitative. Quiver is a useful reference for presenting alternative data, but ThesisLens should be a deeper interpretation layer over FMP Premium data: it helps investors understand what changed, why it matters, and what questions they should answer before forming an investment thesis.
 
@@ -14,7 +19,7 @@ Positioning:
 
 - For individual investors and small research teams focused on U.S. equities.
 - Combines company fundamentals, valuation, analyst expectations, events, filings, news, insider/congressional activity, technical context, and peer comparison.
-- Uses AI to summarize and explain evidence, not to make unsupported buy/sell predictions.
+- Uses deterministic rules to summarize and explain evidence without unsupported buy/sell predictions.
 
 ## 2. Background and Rationale
 
@@ -910,4 +915,3 @@ The MVP is successful if:
 5. Which AI provider and model tier should be used for memo generation?
 6. Should memo generation happen on demand, in background, or both?
 7. How much raw FMP data can be displayed under the current license?
-

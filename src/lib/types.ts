@@ -345,6 +345,7 @@ export type ResearchSnapshot = {
       detail: string;
       refreshedAt?: string;
       expiresAt?: string;
+      attemptStatus?: "success" | "failed";
     }>;
   };
 };

@@ -12,9 +12,16 @@ export async function getPortfolioModel() {
       const marketValue = holding.shares * price;
       const costBasis = holding.averageCost ? holding.averageCost * holding.shares : null;
       const unrealizedGain = costBasis === null ? null : marketValue - costBasis;
-      const quality = research.scores.find((score) => score.scoreType === "quality")?.score ?? 0;
-      const valuation = research.scores.find((score) => score.scoreType === "valuation")?.score ?? 0;
-      const eventRisk = 100 - (research.scores.find((score) => score.scoreType === "events")?.score ?? 50);
+      const quality =
+        research.scores.find((score) => score.scoreType === "quality")?.score ??
+        null;
+      const valuation =
+        research.scores.find((score) => score.scoreType === "valuation")?.score ??
+        null;
+      const eventScore = research.scores.find(
+        (score) => score.scoreType === "events"
+      )?.score;
+      const eventRisk = eventScore === undefined ? null : 100 - eventScore;
 
       return {
         ...holding,
@@ -36,6 +43,22 @@ export async function getPortfolioModel() {
   const totalValue = rows.reduce((sum, row) => sum + row.marketValue, 0);
   const totalCost = rows.reduce((sum, row) => sum + (row.costBasis ?? 0), 0);
   const sectors = new Map<string, number>();
+  const weightedScore = (
+    selector: (row: (typeof rows)[number]) => number | null
+  ) => {
+    const eligible = rows.filter((row) => selector(row) !== null);
+    const eligibleValue = eligible.reduce(
+      (sum, row) => sum + row.marketValue,
+      0
+    );
+    if (eligibleValue === 0) return null;
+    return Math.round(
+      eligible.reduce(
+        (sum, row) => sum + (selector(row) as number) * row.marketValue,
+        0
+      ) / eligibleValue
+    );
+  };
 
   for (const row of rows) {
     sectors.set(row.sector, (sectors.get(row.sector) ?? 0) + row.marketValue);
@@ -47,18 +70,9 @@ export async function getPortfolioModel() {
     totalCost: totalCost || null,
     unrealizedGain: totalCost ? totalValue - totalCost : null,
     unrealizedGainPercent: totalCost ? ((totalValue - totalCost) / totalCost) * 100 : null,
-    weightedQuality:
-      totalValue > 0
-        ? Math.round(rows.reduce((sum, row) => sum + row.quality * row.marketValue, 0) / totalValue)
-        : 0,
-    weightedValuation:
-      totalValue > 0
-        ? Math.round(rows.reduce((sum, row) => sum + row.valuation * row.marketValue, 0) / totalValue)
-        : 0,
-    weightedEventRisk:
-      totalValue > 0
-        ? Math.round(rows.reduce((sum, row) => sum + row.eventRisk * row.marketValue, 0) / totalValue)
-        : 0,
+    weightedQuality: weightedScore((row) => row.quality),
+    weightedValuation: weightedScore((row) => row.valuation),
+    weightedEventRisk: weightedScore((row) => row.eventRisk),
     holdings: rows.map((row) => ({
       ...row,
       weight: totalValue > 0 ? (row.marketValue / totalValue) * 100 : 0

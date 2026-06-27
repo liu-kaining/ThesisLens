@@ -4,21 +4,27 @@ import { getCacheStats } from "@/lib/server/cache";
 import {
   getCompanyResearchSnapshotStats,
   getDataSyncJobStats,
-  getDatabaseHealth
+  getDatabaseHealth,
+  getSystemUniverses
 } from "@/lib/server/db";
+import { isPlausibleSystemUniverseUpdate } from "@/lib/server/system-universes";
 
 export async function GET() {
-  const [database, cache, researchSnapshots, syncJobs] = await Promise.all([
+  const [database, cache, researchSnapshots, syncJobs, systemUniverses] = await Promise.all([
     getDatabaseHealth(),
     getCacheStats(),
     getCompanyResearchSnapshotStats(),
-    getDataSyncJobStats()
+    getDataSyncJobStats(),
+    getSystemUniverses()
   ]);
   const auth = getAuthConfigStatus();
   const liveFmp =
     Boolean(process.env.FMP_API_KEY) && process.env.FMP_USE_MOCKS === "false";
+  const cacheRequired =
+    Boolean(process.env.REDIS_URL) && process.env.REDIS_DISABLED !== "true";
   const ok =
     database.connected &&
+    (!cacheRequired || cache.connected) &&
     auth.authConfigured &&
     auth.internalTokenConfigured &&
     liveFmp;
@@ -39,6 +45,24 @@ export async function GET() {
       },
       researchSnapshots,
       syncJobs,
+      systemUniverses: {
+        healthy:
+          systemUniverses.length > 0 &&
+          systemUniverses.every((universe) =>
+            isPlausibleSystemUniverseUpdate(
+              universe.id,
+              universe.activeCount,
+              universe.activeCount
+            )
+          ),
+        counts: Object.fromEntries(
+          systemUniverses.map((universe) => [universe.id, universe.activeCount])
+        ),
+        oldestRefreshAt: systemUniverses
+          .map((universe) => universe.refreshedAt)
+          .filter((value): value is string => Boolean(value))
+          .sort()[0] ?? null
+      },
       timestamp: new Date().toISOString()
     },
     {

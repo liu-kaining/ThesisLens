@@ -2,14 +2,20 @@
 
 ## 1. System Overview
 
-ThesisLens is a U.S. equity research web application that consumes Financial Modeling Prep (FMP) data, normalizes it into an internal evidence model, computes deterministic investment signals, and uses AI to generate grounded research memos.
+ThesisLens is a U.S. equity research web application that consumes Financial Modeling Prep (FMP) data, normalizes it into an internal evidence model, and computes deterministic investment signals and research memos.
+
+Current implementation note (2026-06-27): external LLM and OpenAI integration are
+not part of the deployed product. All memo and signal output is generated locally
+from explicit rules and evidence IDs. AI sections retained later in this document
+describe a deferred product option, not a current dependency or acceptance
+criterion.
 
 The architecture should optimize for:
 
 - Fast company page load.
 - Controlled FMP API usage.
 - Reproducible scoring.
-- Evidence-backed AI output.
+- Evidence-backed deterministic output.
 - Extensibility for watchlists, screeners, alerts, and future FMP Ultimate datasets.
 
 High-level flow:
@@ -19,8 +25,8 @@ High-level flow:
 3. Missing or stale data is refreshed through the FMP adapter.
 4. Normalized data is stored in Postgres and/or cache.
 5. Signal engine computes scores and insight cards.
-6. AI memo engine receives a curated facts payload.
-7. Company page renders deterministic modules plus AI commentary.
+6. Rule engine receives a curated facts payload.
+7. Company page renders deterministic modules and evidence-linked commentary.
 
 ## 2. Recommended Tech Stack
 
@@ -43,12 +49,12 @@ High-level flow:
 - Background jobs: BullMQ, Inngest, Trigger.dev, or pg-boss.
 - Scheduled refresh: cron-backed job runner.
 
-### 2.3 AI
+### 2.3 Interpretation Layer
 
-- AI provider: OpenAI API.
-- Pattern: server-side generation only.
+- Provider: local deterministic rules only.
+- Pattern: server-side computation.
 - Storage: memo result persisted with input facts hash.
-- Safety: grounded prompt with evidence IDs and output schema.
+- Safety: explicit formulas, evidence IDs, and output schema.
 
 ### 2.4 Deployment
 
@@ -70,14 +76,13 @@ flowchart TD
   API --> Cache["Redis Cache"]
   API --> DB["PostgreSQL"]
   API --> Signal["Signal Engine"]
-  API --> AI["AI Memo Engine"]
+  API --> Memo["Rule-Based Memo Engine"]
   API --> FMP["FMP API Adapter"]
   Jobs["Background Jobs"] --> FMP
   Jobs --> DB
   Jobs --> Cache
   Signal --> DB
-  AI --> DB
-  AI --> OpenAI["OpenAI API"]
+  Memo --> DB
 ```
 
 ## 4. Core Modules

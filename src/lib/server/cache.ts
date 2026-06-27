@@ -14,28 +14,40 @@ type CacheHealth =
     };
 
 let redis: Redis | null = null;
-let redisDisabled = false;
+let redisRetryAt = 0;
 const memoryCache = new Map<string, { expiresAt: number; value: string }>();
 const memoryRateLimits = new Map<string, { count: number; expiresAt: number }>();
 
 function isRedisEnabled() {
-  return Boolean(process.env.REDIS_URL) && process.env.REDIS_DISABLED !== "true" && !redisDisabled;
+  return (
+    Boolean(process.env.REDIS_URL) &&
+    process.env.REDIS_DISABLED !== "true" &&
+    Date.now() >= redisRetryAt
+  );
+}
+
+function markRedisUnavailable(client?: Redis | null) {
+  const failedClient = client ?? redis;
+  failedClient?.disconnect();
+  if (!failedClient || failedClient === redis) {
+    redisRetryAt = Date.now() + 5_000;
+    redis = null;
+  }
 }
 
 function getRedis() {
   if (!isRedisEnabled()) return null;
   if (!redis) {
-    redis = new Redis(process.env.REDIS_URL as string, {
+    const client = new Redis(process.env.REDIS_URL as string, {
       maxRetriesPerRequest: 1,
       lazyConnect: true,
       enableOfflineQueue: false,
       connectTimeout: 800
     });
-    redis.on("error", () => {
-      redisDisabled = true;
-      redis?.disconnect();
-      redis = null;
+    client.on("error", () => {
+      markRedisUnavailable(client);
     });
+    redis = client;
   }
   return redis;
 }
@@ -61,9 +73,7 @@ export async function getCacheHealth(): Promise<CacheHealth> {
       mode: "redis"
     };
   } catch (error) {
-    redisDisabled = true;
-    client.disconnect();
-    redis = null;
+    markRedisUnavailable(client);
     return {
       enabled: true,
       connected: false,
@@ -84,9 +94,7 @@ export async function getJsonCache<T>(key: string): Promise<T | null> {
       const cached = await client.get(key);
       return cached ? (JSON.parse(cached) as T) : null;
     } catch {
-      redisDisabled = true;
-      client.disconnect();
-      redis = null;
+      markRedisUnavailable(client);
     }
   }
 
@@ -111,9 +119,7 @@ export async function setJsonCache<T>(key: string, value: T, ttlSeconds: number)
       await client.set(key, serialized, "EX", ttlSeconds);
       return;
     } catch {
-      redisDisabled = true;
-      client.disconnect();
-      redis = null;
+      markRedisUnavailable(client);
     }
   }
 
@@ -134,9 +140,7 @@ export async function deleteCache(key: string) {
     }
     await client.del(key);
   } catch {
-    redisDisabled = true;
-    client.disconnect();
-    redis = null;
+    markRedisUnavailable(client);
   }
 }
 
@@ -161,9 +165,7 @@ export async function consumeRateLimit(
         retryAfterSeconds: Math.max(1, ttl)
       };
     } catch {
-      redisDisabled = true;
-      client.disconnect();
-      redis = null;
+      markRedisUnavailable(client);
     }
   }
 
@@ -194,9 +196,7 @@ export async function resetRateLimit(key: string) {
     }
     await client.del(key);
   } catch {
-    redisDisabled = true;
-    client.disconnect();
-    redis = null;
+    markRedisUnavailable(client);
   }
 }
 

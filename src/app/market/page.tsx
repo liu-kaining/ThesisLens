@@ -59,7 +59,7 @@ export default async function MarketPage({ searchParams }: MarketPageProps) {
                   <Metric label="价格" value={formatCurrency(company.price, false)} />
                   <Metric label="P/E" value={formatRatio(company.pe, "x")} />
                   <Metric label="市值" value={formatCurrency(company.marketCap)} />
-                  <Metric label="质量" value={`${company.quality}`} />
+                  <Metric label="质量" value={company.quality === null ? "N/A" : `${company.quality}`} />
                 </div>
               </Link>
             ))}
@@ -85,8 +85,8 @@ export default async function MarketPage({ searchParams }: MarketPageProps) {
                     <td className="px-4 py-4 font-semibold text-ink">{sector.sector}</td>
                     <td className="px-4 py-4">{sector.count}</td>
                     <td className="px-4 py-4">{formatPercent(sector.averageMove)}</td>
-                    <td className="px-4 py-4">{sector.averageQuality}</td>
-                    <td className="px-4 py-4">{sector.averageValuation}</td>
+                    <td className="px-4 py-4">{sector.averageQuality ?? "N/A"}</td>
+                    <td className="px-4 py-4">{sector.averageValuation ?? "N/A"}</td>
                   </tr>
                 ))}
                 {market.sectors.length === 0 ? (

@@ -48,4 +48,33 @@ describe("research signal engine", () => {
       expect(signal.evidenceIds.every((id) => evidenceIds.has(id))).toBe(true);
     }
   });
+
+  it("does not manufacture analytical scores when the underlying evidence is missing", () => {
+    const base = getMockSnapshot("AAPL");
+    const snapshot = {
+      ...base,
+      profile: { ...base.profile, symbol: "QQQ", name: "Invesco QQQ Trust" },
+      financials: [],
+      metrics: [],
+      scores: {},
+      analystEstimates: [],
+      rating: { rating: "" },
+      priceTarget: {},
+      valuation: {},
+      insiders: [],
+      congress: [],
+      technicals: []
+    };
+    const evidence = buildEvidence(snapshot);
+    const scores = computeScores(snapshot, evidence);
+    const signals = computeSignals(snapshot, scores, evidence);
+
+    expect(scores.map((score) => score.scoreType)).not.toContain("quality");
+    expect(scores.map((score) => score.scoreType)).not.toContain("valuation");
+    expect(scores.map((score) => score.scoreType)).not.toContain("expectations");
+    expect(scores.map((score) => score.scoreType)).not.toContain("technical");
+    expect(scores.map((score) => score.scoreType)).not.toContain("behavior");
+    expect(signals.map((signal) => signal.category)).not.toContain("quality");
+    expect(signals.map((signal) => signal.category)).not.toContain("valuation");
+  });
 });

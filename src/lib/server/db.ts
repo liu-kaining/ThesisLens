@@ -185,7 +185,7 @@ function parseJsonValue<T>(value: unknown): T {
 function researchCompletenessScore(research: EnrichedResearch) {
   const modules = research.snapshot.dataStatus.modules ?? [];
   const liveModules = modules.filter((module) => module.status === "live").length;
-  const populatedCollections = [
+  const collections = [
     research.snapshot.financials,
     research.snapshot.metrics,
     research.snapshot.analystEstimates,
@@ -199,9 +199,16 @@ function researchCompletenessScore(research: EnrichedResearch) {
     research.evidence,
     research.signals,
     research.scores
-  ].filter((collection) => collection.length > 0).length;
+  ];
+  const populatedCollections = collections.filter(
+    (collection) => collection.length > 0
+  ).length;
+  const liveCoverage = modules.length ? liveModules / modules.length : 0;
+  const contentCoverage = collections.length
+    ? populatedCollections / collections.length
+    : 0;
 
-  return liveModules * 10 + populatedCollections;
+  return Math.round(liveCoverage * 80 + contentCoverage * 20);
 }
 
 function ensureMemorySystemUniverseDefinitions() {
@@ -732,6 +739,17 @@ async function ensureSchema() {
           'memory-alert-msft',
           'memory-alert-nvda'
         );
+        UPDATE company_research_snapshots
+        SET research_json =
+          research_json
+          #- '{snapshot,valuation,historicalPePercentile}'
+          #- '{snapshot,valuation,peerPePercentile}'
+        WHERE
+          research_json #> '{snapshot,valuation,historicalPePercentile}' IS NOT NULL
+          OR research_json #> '{snapshot,valuation,peerPePercentile}' IS NOT NULL;
+        UPDATE company_research_snapshots
+        SET completeness_score = 100
+        WHERE completeness_score > 100;
         `
       );
 
@@ -970,10 +988,11 @@ export async function saveCompanyResearchSnapshot(
     };
     await saveCompanyDataModuleStates(companyModuleStatesFromResearch(research));
     return savedRecord;
-  } catch {
-    memoryResearchSnapshots.set(symbol, record);
-    await saveCompanyDataModuleStates(companyModuleStatesFromResearch(research));
-    return record;
+  } catch (error) {
+    throw new Error(
+      `Failed to persist research snapshot for ${symbol}`,
+      { cause: error }
+    );
   }
 }
 
@@ -1131,10 +1150,10 @@ export async function saveCompanyDataModuleStates(
         ]
       );
     }
-  } catch {
-    for (const state of states) {
-      memoryCompanyDataModules.set(`${state.symbol}:${state.moduleKey}`, state);
-    }
+  } catch (error) {
+    throw new Error("Failed to persist company data module states", {
+      cause: error
+    });
   }
 }
 
